@@ -1,0 +1,44 @@
+[package]
+name = "uns-editor"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
+[dependencies]
+cosmic-text = { path = "../cosmic-text", features = ["swash"] }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+web-sys = { version = "0.3", features = [
+    "Window",
+    "Document",
+    "HtmlCanvasElement",
+    "CanvasRenderingContext2d",
+    "ImageData",
+    "KeyboardEvent",
+    "MouseEvent",
+    "WheelEvent",
+    "TouchEvent",
+    "Touch",
+    "TouchList",
+    "Element",
+    "HtmlElement",
+    "DomRect",
+    "Response",
+    "Request",
+    "console",
+] }
+js-sys = "0.3"
+console_error_panic_hook = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = "z"     # Optimize for size
+lto = true          # Enable Link Time Optimization
+codegen-units = 1   # Reduce parallel compilation for better optimization

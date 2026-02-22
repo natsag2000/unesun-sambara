@@ -1,0 +1,11 @@
+{
+  "name": "uns-editor",
+  "version": "0.1.0",
+  "scripts": {
+    "build:css": "tailwindcss -i ./src/styles.css -o ./dist/output.css --minify",
+    "watch:css": "tailwindcss -i ./src/styles.css -o ./dist/output.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0"
+  }
+}

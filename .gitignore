@@ -1,0 +1,26 @@
+# Rust
+target/
+Cargo.lock
+
+# WASM build output
+pkg/
+
+# Editor files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Log files
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# node_modules
+node_modules
+
+# prompts
+prompt/
