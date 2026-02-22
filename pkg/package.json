@@ -1,0 +1,15 @@
+{
+  "name": "uns-editor",
+  "type": "module",
+  "version": "0.1.0",
+  "files": [
+    "uns_editor_bg.wasm",
+    "uns_editor.js",
+    "uns_editor.d.ts"
+  ],
+  "main": "uns_editor.js",
+  "types": "uns_editor.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}
