@@ -1817,6 +1817,23 @@
                                 return;
                             }
 
+                            // Handle Ctrl+V (Paste) - intercept before Rust handles it
+                            if ((e.ctrlKey || e.metaKey) && e.key === "v") {
+                                e.preventDefault();
+                                if (editor) {
+                                    navigator.clipboard.readText().then(text => {
+                                        if (text) {
+                                            editor.insert_text(text);
+                                            updateStatus("Pasted: " + text.substring(0, 20) + (text.length > 20 ? "..." : ""));
+                                        }
+                                    }).catch(err => {
+                                        console.error("Paste failed:", err);
+                                        showError("Paste failed: " + err.message);
+                                    });
+                                }
+                                return;
+                            }
+
                             // Intercept character input for Latin to Mongolian conversion
                             if (
                                 isInputModeActive &&
