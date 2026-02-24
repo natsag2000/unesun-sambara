@@ -780,6 +780,17 @@ impl WasmEditor {
         }
     }
 
+    pub fn get_selected_text(&self) -> JsValue {
+        match self.state.editor.copy_selection() {
+            Some(text) => JsValue::from_str(&text),
+            None => JsValue::NULL,
+        }
+    }
+
+    pub fn delete_selection(&mut self) {
+        self.state.editor.action(&mut self.state.font_system, Action::Backspace);
+    }
+
     pub fn toggle_vertical(&mut self) {
         use cosmic_text::TextOrientation;
 

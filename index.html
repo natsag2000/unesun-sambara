@@ -1,2164 +1,2352 @@
 <!doctype html>
 <html>
-  <head>
-    <meta charset="utf-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
-    />
-    <title>unesun sambarA - Mongolian Text Editor</title>
-    <link rel="stylesheet" href="dist/output.css" />
-    <link
-      rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0"
-    />
-    <style>
-      /* Safe area padding for iPhone notch/Dynamic Island */
-      #header {
-        padding-top: max(6px, env(safe-area-inset-top));
-        padding-left: max(20px, env(safe-area-inset-left));
-        padding-right: max(20px, env(safe-area-inset-right));
-      }
-
-      #status {
-        padding-bottom: max(2px, env(safe-area-inset-bottom));
-        padding-left: max(20px, env(safe-area-inset-left));
-        padding-right: max(20px, env(safe-area-inset-right));
-      }
-
-      /* Prevent text selection on touch devices */
-      @media (hover: none) and (pointer: coarse) {
-        * {
-          -webkit-touch-callout: none;
-          -webkit-user-select: none;
-          user-select: none;
-        }
-
-        input,
-        textarea,
-        #mobile-input {
-          -webkit-user-select: auto;
-          user-select: auto;
-        }
-      }
-
-      /* Fix 300ms tap delay */
-      button,
-      a,
-      .clickable {
-        touch-action: manipulation;
-      }
-
-      /* Hardware acceleration for canvas */
-      #editor-canvas {
-        transform: translateZ(0);
-        -webkit-transform: translateZ(0);
-        will-change: transform;
-        touch-action: pan-x pan-y; /* Allow native pan gestures */
-      }
-
-      /* Reduce animations on mobile */
-      @media (prefers-reduced-motion: reduce) {
-        *,
-        *::before,
-        *::after {
-          animation-duration: 0.01ms !important;
-          animation-iteration-count: 1 !important;
-          transition-duration: 0.01ms !important;
-        }
-      }
-
-      /* Mobile modal improvements */
-      @media (max-width: 640px) {
-        #settings-modal .bg-editor-header {
-          max-width: 95vw;
-          max-height: 95vh;
-          margin: 0.5rem;
-        }
-
-        /* Larger touch targets */
-        #settings-modal button {
-          min-height: 44px;
-          padding: 0.75rem 1rem;
-        }
-
-        /* Readable font sizes */
-        #settings-modal label {
-          font-size: 14px;
-        }
-
-        #settings-modal input[type="text"],
-        #settings-modal input[type="color"] {
-          font-size: 16px; /* Prevent iOS zoom on focus */
-        }
-
-        #settings-modal select {
-          font-size: 16px;
-        }
-      }
-
-      /* Touch feedback for buttons */
-      button:active {
-        transform: scale(0.95);
-      }
-
-      /* Mobile input for iOS keyboard */
-      #mobile-input:focus {
-        position: fixed;
-        left: 0;
-        top: 0;
-        width: 1px;
-        height: 1px;
-        opacity: 0;
-      }
-
-      /* Save modal mobile optimization */
-      @media (max-width: 640px) {
-        #save-modal .bg-editor-header {
-          max-width: 95vw;
-          margin: 0.5rem;
-        }
-
-        #save-modal button {
-          min-height: 44px; /* Apple HIG minimum touch target */
-        }
-      }
-
-      /* Drag and drop styling */
-      #canvas-container {
-        transition: background-color 0.2s ease;
-      }
-
-      #editor-canvas {
-        transition: opacity 0.2s ease;
-      }
-
-      /* Material Icons styling */
-      .material-symbols-rounded {
-        font-variation-settings:
-          "FILL" 0,
-          "wght" 400,
-          "GRAD" 0,
-          "opsz" 24;
-      }
-
-      /* Modern rounded toolbar buttons */
-      .toolbar-btn {
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        background-color: rgba(255, 255, 255, 0.1);
-        color: #ffffff;
-        border: none;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        font-size: 20px;
-      }
-
-      .toolbar-btn:hover {
-        background-color: rgba(255, 255, 255, 0.2);
-        transform: scale(1.05);
-      }
-
-      .toolbar-btn:active {
-        background-color: rgba(255, 255, 255, 0.3);
-        transform: scale(0.95);
-      }
-
-      .toolbar-btn.active {
-        background-color: #3b82f6;
-      }
-
-      /* Responsive toolbar on mobile */
-      @media (max-width: 640px) {
-        .toolbar-btn {
-          width: 40px;
-          height: 40px;
-          font-size: 20px;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <div id="container" class="flex flex-col h-screen">
-      <div
-        id="header"
-        class="bg-editor-header px-5 py-1.5 border-b border-editor-border flex justify-between items-center"
-      >
-        <img
-          id="logo-btn"
-          src="assets/logo.png"
-          alt="UNS Editor"
-          style="height: 28px; width: auto; cursor: pointer"
-          title="Version Information"
+    <head>
+        <meta charset="utf-8" />
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
         />
-        <div id="controls" class="flex gap-[10px] items-center">
-          <button
-            id="keyboard-btn"
-            class="toolbar-btn active"
-            title="Toggle Input Mode"
-          >
-            <span class="material-symbols-rounded">keyboard</span>
-          </button>
-          <button
-            id="vertical-btn"
-            class="toolbar-btn"
-            title="Toggle Orientation (Horizontal ⇄ Vertical)"
-          >
-            <span class="material-symbols-rounded">screen_rotation</span>
-          </button>
-          <button id="clear-btn" class="toolbar-btn" title="Clear Document">
-            <span class="material-symbols-rounded">delete</span>
-          </button>
-          <button id="open-btn" class="toolbar-btn" title="Open File">
-            <span class="material-symbols-rounded">folder_open</span>
-          </button>
-          <button id="save-btn" class="toolbar-btn" title="Save File">
-            <span class="material-symbols-rounded">save</span>
-          </button>
-          <button id="settings-btn" class="toolbar-btn" title="Settings">
-            <span class="material-symbols-rounded">settings</span>
-          </button>
-        </div>
-      </div>
-
-      <div
-        id="error"
-        class="bg-red-400 text-editor-bg px-5 py-1 text-[10px] hidden"
-      ></div>
-
-      <div
-        id="canvas-container"
-        class="flex-1 relative overflow-hidden bg-editor-bg"
-      >
-        <div
-          id="loading"
-          class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center text-editor-text-dim"
-        >
-          <div
-            class="spinner border-4 border-editor-border border-t-editor-accent rounded-full w-10 h-10 animate-spin mx-auto mb-4"
-          ></div>
-          <p>Loading unesun sambarA</p>
-        </div>
-        <canvas
-          id="editor-canvas"
-          class="block w-full h-full cursor-text"
-        ></canvas>
-
-        <!-- Hidden input for iOS keyboard -->
-        <input
-          id="mobile-input"
-          type="text"
-          autocomplete="off"
-          autocorrect="off"
-          autocapitalize="off"
-          spellcheck="false"
-          class="absolute opacity-0 pointer-events-none"
-          style="position: absolute; left: -9999px"
+        <title>unesun sambarA - Mongolian Text Editor</title>
+        <link rel="stylesheet" href="dist/output.css" />
+        <link
+            rel="stylesheet"
+            href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0"
         />
-      </div>
+        <style>
+            /* Safe area padding for iPhone notch/Dynamic Island */
+            #header {
+                padding-top: max(6px, env(safe-area-inset-top));
+                padding-left: max(20px, env(safe-area-inset-left));
+                padding-right: max(20px, env(safe-area-inset-right));
+            }
 
-      <div
-        id="status"
-        class="bg-blue-600 text-white px-5 py-0.5 text-[10px] border-t border-blue-400 flex justify-between"
-      >
-        <span id="status-message">Ready | UNS Editor</span>
-        <div class="flex gap-3">
-          <span id="unicode-info" class="hidden"></span>
-          <span id="word-count" class="hidden">Words: 0</span>
-          <span id="cursor-position" class="hidden">Line 1, Col 1</span>
-        </div>
-      </div>
-    </div>
+            #status {
+                padding-bottom: max(2px, env(safe-area-inset-bottom));
+                padding-left: max(20px, env(safe-area-inset-left));
+                padding-right: max(20px, env(safe-area-inset-right));
+            }
 
-    <!-- Settings Modal -->
-    <div
-      id="settings-modal"
-      class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50"
-    >
-      <div
-        class="bg-editor-header rounded-lg shadow-2xl w-full max-w-2xl sm:max-w-2xl max-w-[95vw] mx-4 max-h-[90vh] overflow-y-auto"
-      >
-        <!-- Header -->
-        <div
-          class="flex justify-end items-center px-4 py-2 border-b border-editor-border"
-        >
-          <button
-            id="settings-close"
-            class="text-editor-text hover:text-white text-3xl leading-none"
-          >
-            &times;
-          </button>
-        </div>
+            /* Prevent text selection on touch devices */
+            @media (hover: none) and (pointer: coarse) {
+                * {
+                    -webkit-touch-callout: none;
+                    -webkit-user-select: none;
+                    user-select: none;
+                }
 
-        <!-- Body -->
-        <div class="p-6 space-y-6">
-          <!-- Font Settings -->
-          <div class="space-y-4">
-            <h3
-              class="text-sm font-semibold text-white border-b border-editor-border pb-2"
+                input,
+                textarea,
+                #mobile-input {
+                    -webkit-user-select: auto;
+                    user-select: auto;
+                }
+            }
+
+            /* Fix 300ms tap delay */
+            button,
+            a,
+            .clickable {
+                touch-action: manipulation;
+            }
+
+            /* Hardware acceleration for canvas */
+            #editor-canvas {
+                transform: translateZ(0);
+                -webkit-transform: translateZ(0);
+                will-change: transform;
+                touch-action: pan-x pan-y; /* Allow native pan gestures */
+            }
+
+            /* Reduce animations on mobile */
+            @media (prefers-reduced-motion: reduce) {
+                *,
+                *::before,
+                *::after {
+                    animation-duration: 0.01ms !important;
+                    animation-iteration-count: 1 !important;
+                    transition-duration: 0.01ms !important;
+                }
+            }
+
+            /* Mobile modal improvements */
+            @media (max-width: 640px) {
+                #settings-modal .bg-editor-header {
+                    max-width: 95vw;
+                    max-height: 95vh;
+                    margin: 0.5rem;
+                }
+
+                /* Larger touch targets */
+                #settings-modal button {
+                    min-height: 44px;
+                    padding: 0.75rem 1rem;
+                }
+
+                /* Readable font sizes */
+                #settings-modal label {
+                    font-size: 14px;
+                }
+
+                #settings-modal input[type="text"],
+                #settings-modal input[type="color"] {
+                    font-size: 16px; /* Prevent iOS zoom on focus */
+                }
+
+                #settings-modal select {
+                    font-size: 16px;
+                }
+            }
+
+            /* Touch feedback for buttons */
+            button:active {
+                transform: scale(0.95);
+            }
+
+            /* Mobile input for iOS keyboard */
+            #mobile-input:focus {
+                position: fixed;
+                left: 0;
+                top: 0;
+                width: 1px;
+                height: 1px;
+                opacity: 0;
+            }
+
+            /* Save modal mobile optimization */
+            @media (max-width: 640px) {
+                #save-modal .bg-editor-header {
+                    max-width: 95vw;
+                    margin: 0.5rem;
+                }
+
+                #save-modal button {
+                    min-height: 44px; /* Apple HIG minimum touch target */
+                }
+            }
+
+            /* Drag and drop styling */
+            #canvas-container {
+                transition: background-color 0.2s ease;
+            }
+
+            #editor-canvas {
+                transition: opacity 0.2s ease;
+            }
+
+            /* Material Icons styling */
+            .material-symbols-rounded {
+                font-variation-settings:
+                    "FILL" 0,
+                    "wght" 400,
+                    "GRAD" 0,
+                    "opsz" 24;
+            }
+
+            /* Modern rounded toolbar buttons */
+            .toolbar-btn {
+                width: 40px;
+                height: 40px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background-color: rgba(255, 255, 255, 0.1);
+                color: #ffffff;
+                border: none;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                font-size: 20px;
+            }
+
+            .toolbar-btn:hover {
+                background-color: rgba(255, 255, 255, 0.2);
+                transform: scale(1.05);
+            }
+
+            .toolbar-btn:active {
+                background-color: rgba(255, 255, 255, 0.3);
+                transform: scale(0.95);
+            }
+
+            .toolbar-btn.active {
+                background-color: #3b82f6;
+            }
+
+            /* Responsive toolbar on mobile */
+            @media (max-width: 640px) {
+                .toolbar-btn {
+                    width: 40px;
+                    height: 40px;
+                    font-size: 20px;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div id="container" class="flex flex-col h-screen">
+            <div
+                id="header"
+                class="bg-editor-header px-5 py-1.5 border-b border-editor-border flex justify-between items-center"
             >
-              Font Settings
-            </h3>
+                <img
+                    id="logo-btn"
+                    src="assets/logo.png"
+                    alt="UNS Editor"
+                    style="height: 28px; width: auto; cursor: pointer"
+                    title="Version Information"
+                />
+                <div id="controls" class="flex gap-[10px] items-center">
+                    <button
+                        id="keyboard-btn"
+                        class="toolbar-btn active"
+                        title="Toggle Input Mode"
+                    >
+                        <span class="material-symbols-rounded">keyboard</span>
+                    </button>
+                    <button
+                        id="vertical-btn"
+                        class="toolbar-btn"
+                        title="Toggle Orientation (Horizontal ⇄ Vertical)"
+                    >
+                        <span class="material-symbols-rounded"
+                            >screen_rotation</span
+                        >
+                    </button>
+                    <button
+                        id="clear-btn"
+                        class="toolbar-btn"
+                        title="Clear Document"
+                    >
+                        <span class="material-symbols-rounded">delete</span>
+                    </button>
+                    <button id="open-btn" class="toolbar-btn" title="Open File">
+                        <span class="material-symbols-rounded"
+                            >folder_open</span
+                        >
+                    </button>
+                    <button id="save-btn" class="toolbar-btn" title="Save File">
+                        <span class="material-symbols-rounded">save</span>
+                    </button>
+                    <button
+                        id="settings-btn"
+                        class="toolbar-btn"
+                        title="Settings"
+                    >
+                        <span class="material-symbols-rounded">settings</span>
+                    </button>
+                </div>
+            </div>
 
-            <div class="space-y-2">
-              <label class="block text-xs text-editor-text">Font Family</label>
-              <select
-                id="font-family"
-                class="w-full bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-editor-accent"
-              >
-                <option value="Noto Sans Mongolian">Noto Sans Mongolian</option>
-                <option value="Mongolian Baiti">Mongolian Baiti</option>
-                <option value="Noto Sans">Noto Sans</option>
-              </select>
-              <div
-                class="bg-editor-bg border border-editor-border rounded p-4 text-center overflow-y-auto"
-                style="height: 100px"
-              >
+            <div
+                id="error"
+                class="bg-red-400 text-editor-bg px-5 py-1 text-[10px] hidden"
+            ></div>
+
+            <div
+                id="canvas-container"
+                class="flex-1 relative overflow-hidden bg-editor-bg"
+            >
                 <div
-                  id="font-preview"
-                  style="
-                    font-size: 24px;
-                    font-family: &quot;Noto Sans Mongolian&quot;;
-                    color: #c8c8c8;
-                    line-height: 30px;
-                    display: inline-block;
-                  "
+                    id="loading"
+                    class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center text-editor-text-dim"
                 >
-                  ᠮᠣᠩᠭᠣᠯ ᠪᠢᠴᠢᠭ᠌
-                  <br />
-                  Traditional Mongolian Script
+                    <div
+                        class="spinner border-4 border-editor-border border-t-editor-accent rounded-full w-10 h-10 animate-spin mx-auto mb-4"
+                    ></div>
+                    <p>Loading unesun sambarA</p>
                 </div>
-              </div>
+                <canvas
+                    id="editor-canvas"
+                    class="block w-full h-full cursor-text"
+                ></canvas>
+
+                <!-- Hidden input for iOS keyboard -->
+                <input
+                    id="mobile-input"
+                    type="text"
+                    autocomplete="off"
+                    autocorrect="off"
+                    autocapitalize="off"
+                    spellcheck="false"
+                    class="absolute opacity-0 pointer-events-none"
+                    style="position: absolute; left: -9999px"
+                />
             </div>
 
-            <div class="space-y-2">
-              <label class="block text-xs text-editor-text">
-                Font Size:
-                <span id="font-size-value" class="text-white font-semibold"
-                  >24px</span
-                >
-              </label>
-              <input
-                type="range"
-                id="font-size"
-                min="8"
-                max="300"
-                value="24"
-                step="1"
-                class="w-full h-2 bg-editor-border rounded-lg cursor-pointer accent-editor-accent"
-              />
-            </div>
-
-            <div class="space-y-2">
-              <label class="block text-xs text-editor-text">
-                Line Height:
-                <span id="line-height-value" class="text-white font-semibold"
-                  >30px</span
-                >
-              </label>
-              <input
-                type="range"
-                id="line-height"
-                min="8"
-                max="400"
-                value="30"
-                step="1"
-                class="w-full h-2 bg-editor-border rounded-lg cursor-pointer accent-editor-accent"
-              />
-            </div>
-          </div>
-
-          <!-- Color Settings -->
-          <div class="space-y-4">
-            <h3
-              class="text-sm font-semibold text-white border-b border-editor-border pb-2"
+            <div
+                id="status"
+                class="bg-blue-600 text-white px-5 py-0.5 text-[10px] border-t border-blue-400 flex justify-between"
             >
-              Color Settings
-            </h3>
-
-            <div style="display: flex; flex-direction: column; gap: 1rem">
-              <div style="display: flex; flex-direction: column; gap: 0.5rem">
-                <label
-                  style="
-                    display: block;
-                    font-size: 0.875rem;
-                    font-weight: 500;
-                    color: #858585;
-                  "
-                  >Text Color</label
-                >
-                <div style="display: flex; gap: 0.75rem; align-items: stretch">
-                  <input
-                    type="color"
-                    id="text-color"
-                    value="#c8c8c8"
-                    style="
-                      width: 70px;
-                      height: 50px;
-                      border: 2px solid #3e3e42;
-                      border-radius: 4px;
-                      cursor: pointer;
-                      padding: 0;
-                      background: none;
-                    "
-                  />
-                  <input
-                    type="text"
-                    id="text-color-hex"
-                    value="#c8c8c8"
-                    placeholder="Type hex code"
-                    class="flex-1 bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-2 text-base font-mono"
-                    style="flex: 1; min-width: 0"
-                  />
+                <span id="status-message">Ready | UNS Editor</span>
+                <div class="flex gap-3">
+                    <span id="unicode-info" class="hidden"></span>
+                    <span id="word-count" class="hidden">Words: 0</span>
+                    <span id="cursor-position" class="hidden"
+                        >Line 1, Col 1</span
+                    >
                 </div>
-              </div>
-
-              <div style="display: flex; flex-direction: column; gap: 0.5rem">
-                <label
-                  style="
-                    display: block;
-                    font-size: 0.875rem;
-                    font-weight: 500;
-                    color: #858585;
-                  "
-                  >Background Color</label
-                >
-                <div style="display: flex; gap: 0.75rem; align-items: stretch">
-                  <input
-                    type="color"
-                    id="background-color"
-                    value="#2b2b2b"
-                    style="
-                      width: 70px;
-                      height: 50px;
-                      border: 2px solid #3e3e42;
-                      border-radius: 4px;
-                      cursor: pointer;
-                      padding: 0;
-                      background: none;
-                    "
-                  />
-                  <input
-                    type="text"
-                    id="background-color-hex"
-                    value="#2b2b2b"
-                    placeholder="Type hex code"
-                    class="flex-1 bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-2 text-base font-mono"
-                    style="flex: 1; min-width: 0"
-                  />
-                </div>
-              </div>
             </div>
-          </div>
         </div>
 
-        <!-- Footer -->
+        <!-- Settings Modal -->
         <div
-          class="flex justify-end gap-3 px-6 py-4 border-t border-editor-border"
+            id="settings-modal"
+            class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50"
         >
-          <button
-            id="settings-reset"
-            class="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700 active:bg-gray-800 transition-colors"
-          >
-            Reset to Defaults
-          </button>
-          <button
-            id="settings-cancel"
-            class="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700 active:bg-gray-800 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            id="settings-save"
-            class="bg-editor-accent text-white px-4 py-2 rounded text-sm hover:bg-blue-600 active:bg-blue-700 transition-colors"
-          >
-            Save Changes
-          </button>
-        </div>
-      </div>
-    </div>
+            <div
+                class="bg-editor-header rounded-lg shadow-2xl w-full max-w-2xl sm:max-w-2xl max-w-[95vw] mx-4 max-h-[90vh] overflow-y-auto"
+            >
+                <!-- Header -->
+                <div
+                    class="flex justify-end items-center px-4 py-2 border-b border-editor-border"
+                >
+                    <button
+                        id="settings-close"
+                        class="text-editor-text hover:text-white text-3xl leading-none"
+                    >
+                        &times;
+                    </button>
+                </div>
 
-    <!-- Save Modal -->
-    <div
-      id="save-modal"
-      class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50"
-    >
-      <div class="bg-editor-header rounded-lg shadow-2xl w-full max-w-md mx-4">
-        <!-- Header -->
+                <!-- Body -->
+                <div class="p-6 space-y-6">
+                    <!-- Font Settings -->
+                    <div class="space-y-4">
+                        <h3
+                            class="text-sm font-semibold text-white border-b border-editor-border pb-2"
+                        >
+                            Font Settings
+                        </h3>
+
+                        <div class="space-y-2">
+                            <label class="block text-xs text-editor-text"
+                                >Font Family</label
+                            >
+                            <select
+                                id="font-family"
+                                class="w-full bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-editor-accent"
+                            >
+                                <option value="Noto Sans Mongolian">
+                                    Noto Sans Mongolian
+                                </option>
+                                <option value="Mongolian Baiti">
+                                    Mongolian Baiti
+                                </option>
+                                <option value="Noto Sans">Noto Sans</option>
+                            </select>
+                            <div
+                                class="bg-editor-bg border border-editor-border rounded p-4 text-center overflow-y-auto"
+                                style="height: 100px"
+                            >
+                                <div
+                                    id="font-preview"
+                                    style="
+                                        font-size: 24px;
+                                        font-family: &quot;Noto Sans Mongolian&quot;;
+                                        color: #c8c8c8;
+                                        line-height: 30px;
+                                        display: inline-block;
+                                    "
+                                >
+                                    ᠮᠣᠩᠭᠣᠯ ᠪᠢᠴᠢᠭ᠌
+                                    <br />
+                                    Traditional Mongolian Script
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="space-y-2">
+                            <label class="block text-xs text-editor-text">
+                                Font Size:
+                                <span
+                                    id="font-size-value"
+                                    class="text-white font-semibold"
+                                    >24px</span
+                                >
+                            </label>
+                            <input
+                                type="range"
+                                id="font-size"
+                                min="8"
+                                max="300"
+                                value="24"
+                                step="1"
+                                class="w-full h-2 bg-editor-border rounded-lg cursor-pointer accent-editor-accent"
+                            />
+                        </div>
+
+                        <div class="space-y-2">
+                            <label class="block text-xs text-editor-text">
+                                Line Height:
+                                <span
+                                    id="line-height-value"
+                                    class="text-white font-semibold"
+                                    >30px</span
+                                >
+                            </label>
+                            <input
+                                type="range"
+                                id="line-height"
+                                min="8"
+                                max="400"
+                                value="30"
+                                step="1"
+                                class="w-full h-2 bg-editor-border rounded-lg cursor-pointer accent-editor-accent"
+                            />
+                        </div>
+                    </div>
+
+                    <!-- Color Settings -->
+                    <div class="space-y-4">
+                        <h3
+                            class="text-sm font-semibold text-white border-b border-editor-border pb-2"
+                        >
+                            Color Settings
+                        </h3>
+
+                        <div
+                            style="
+                                display: flex;
+                                flex-direction: column;
+                                gap: 1rem;
+                            "
+                        >
+                            <div
+                                style="
+                                    display: flex;
+                                    flex-direction: column;
+                                    gap: 0.5rem;
+                                "
+                            >
+                                <label
+                                    style="
+                                        display: block;
+                                        font-size: 0.875rem;
+                                        font-weight: 500;
+                                        color: #858585;
+                                    "
+                                    >Text Color</label
+                                >
+                                <div
+                                    style="
+                                        display: flex;
+                                        gap: 0.75rem;
+                                        align-items: stretch;
+                                    "
+                                >
+                                    <input
+                                        type="color"
+                                        id="text-color"
+                                        value="#c8c8c8"
+                                        style="
+                                            width: 70px;
+                                            height: 50px;
+                                            border: 2px solid #3e3e42;
+                                            border-radius: 4px;
+                                            cursor: pointer;
+                                            padding: 0;
+                                            background: none;
+                                        "
+                                    />
+                                    <input
+                                        type="text"
+                                        id="text-color-hex"
+                                        value="#c8c8c8"
+                                        placeholder="Type hex code"
+                                        class="flex-1 bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-2 text-base font-mono"
+                                        style="flex: 1; min-width: 0"
+                                    />
+                                </div>
+                            </div>
+
+                            <div
+                                style="
+                                    display: flex;
+                                    flex-direction: column;
+                                    gap: 0.5rem;
+                                "
+                            >
+                                <label
+                                    style="
+                                        display: block;
+                                        font-size: 0.875rem;
+                                        font-weight: 500;
+                                        color: #858585;
+                                    "
+                                    >Background Color</label
+                                >
+                                <div
+                                    style="
+                                        display: flex;
+                                        gap: 0.75rem;
+                                        align-items: stretch;
+                                    "
+                                >
+                                    <input
+                                        type="color"
+                                        id="background-color"
+                                        value="#2b2b2b"
+                                        style="
+                                            width: 70px;
+                                            height: 50px;
+                                            border: 2px solid #3e3e42;
+                                            border-radius: 4px;
+                                            cursor: pointer;
+                                            padding: 0;
+                                            background: none;
+                                        "
+                                    />
+                                    <input
+                                        type="text"
+                                        id="background-color-hex"
+                                        value="#2b2b2b"
+                                        placeholder="Type hex code"
+                                        class="flex-1 bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-2 text-base font-mono"
+                                        style="flex: 1; min-width: 0"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Footer -->
+                <div
+                    class="flex justify-end gap-3 px-6 py-4 border-t border-editor-border"
+                >
+                    <button
+                        id="settings-reset"
+                        class="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700 active:bg-gray-800 transition-colors"
+                    >
+                        Reset to Defaults
+                    </button>
+                    <button
+                        id="settings-cancel"
+                        class="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700 active:bg-gray-800 transition-colors"
+                    >
+                        Cancel
+                    </button>
+                    <button
+                        id="settings-save"
+                        class="bg-editor-accent text-white px-4 py-2 rounded text-sm hover:bg-blue-600 active:bg-blue-700 transition-colors"
+                    >
+                        Save Changes
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Save Modal -->
         <div
-          class="flex justify-between items-center px-4 py-3 border-b border-editor-border"
+            id="save-modal"
+            class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50"
         >
-          <h2 class="text-white font-semibold">Save Document</h2>
-          <button
-            id="save-modal-close"
-            class="text-editor-text hover:text-white text-3xl leading-none"
-          >
-            &times;
-          </button>
+            <div
+                class="bg-editor-header rounded-lg shadow-2xl w-full max-w-md mx-4"
+            >
+                <!-- Header -->
+                <div
+                    class="flex justify-between items-center px-4 py-3 border-b border-editor-border"
+                >
+                    <h2 class="text-white font-semibold">Save Document</h2>
+                    <button
+                        id="save-modal-close"
+                        class="text-editor-text hover:text-white text-3xl leading-none"
+                    >
+                        &times;
+                    </button>
+                </div>
+
+                <!-- Body -->
+                <div class="p-6 space-y-4">
+                    <div class="space-y-2">
+                        <label class="block text-xs text-editor-text"
+                            >File Name</label
+                        >
+                        <input
+                            type="text"
+                            id="filename-input"
+                            value="uns-document"
+                            class="w-full bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-editor-accent"
+                            placeholder="Enter filename"
+                        />
+                        <p class="text-editor-text text-xs opacity-70">
+                            Extension will be added automatically (.txt or .uns)
+                        </p>
+                    </div>
+
+                    <p class="text-editor-text text-sm">Choose file format:</p>
+
+                    <button
+                        id="save-txt-btn"
+                        class="w-full bg-editor-accent text-white px-4 py-3 rounded text-sm hover:bg-blue-600 active:bg-blue-700 transition-colors flex items-center justify-between"
+                    >
+                        <span>
+                            <strong>Save as TXT</strong>
+                            <br />
+                            <span class="text-xs opacity-80"
+                                >Plain text only (no settings)</span
+                            >
+                        </span>
+                        <span class="text-2xl">📄</span>
+                    </button>
+
+                    <button
+                        id="save-uns-btn"
+                        class="w-full bg-editor-accent text-white px-4 py-3 rounded text-sm hover:bg-blue-600 active:bg-blue-700 transition-colors flex items-center justify-between"
+                    >
+                        <span>
+                            <strong>Save as UNS</strong>
+                            <br />
+                            <span class="text-xs opacity-80"
+                                >Text + settings + metadata</span
+                            >
+                        </span>
+                        <span class="text-2xl">📦</span>
+                    </button>
+                </div>
+
+                <!-- Footer -->
+                <div
+                    class="flex justify-end gap-3 px-6 py-4 border-t border-editor-border"
+                >
+                    <button
+                        id="save-modal-cancel"
+                        class="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700 active:bg-gray-800 transition-colors"
+                    >
+                        Cancel
+                    </button>
+                </div>
+            </div>
         </div>
 
-        <!-- Body -->
-        <div class="p-6 space-y-4">
-          <div class="space-y-2">
-            <label class="block text-xs text-editor-text">File Name</label>
-            <input
-              type="text"
-              id="filename-input"
-              value="uns-document"
-              class="w-full bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-editor-accent"
-              placeholder="Enter filename"
-            />
-            <p class="text-editor-text text-xs opacity-70">
-              Extension will be added automatically (.txt or .uns)
-            </p>
-          </div>
+        <!-- Hidden file input for opening files -->
+        <input
+            type="file"
+            id="file-input"
+            accept=".txt,.uns"
+            style="display: none"
+        />
 
-          <p class="text-editor-text text-sm">Choose file format:</p>
+        <script type="module">
+            import init, { WasmEditor } from "./pkg/uns_editor.js?v=3";
 
-          <button
-            id="save-txt-btn"
-            class="w-full bg-editor-accent text-white px-4 py-3 rounded text-sm hover:bg-blue-600 active:bg-blue-700 transition-colors flex items-center justify-between"
-          >
-            <span>
-              <strong>Save as TXT</strong>
-              <br />
-              <span class="text-xs opacity-80"
-                >Plain text only (no settings)</span
-              >
-            </span>
-            <span class="text-2xl">📄</span>
-          </button>
+            let editor = null;
+            let animationId = null;
 
-          <button
-            id="save-uns-btn"
-            class="w-full bg-editor-accent text-white px-4 py-3 rounded text-sm hover:bg-blue-600 active:bg-blue-700 transition-colors flex items-center justify-between"
-          >
-            <span>
-              <strong>Save as UNS</strong>
-              <br />
-              <span class="text-xs opacity-80">Text + settings + metadata</span>
-            </span>
-            <span class="text-2xl">📦</span>
-          </button>
-        </div>
+            let errorTimeout = null;
 
-        <!-- Footer -->
-        <div
-          class="flex justify-end gap-3 px-6 py-4 border-t border-editor-border"
-        >
-          <button
-            id="save-modal-cancel"
-            class="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700 active:bg-gray-800 transition-colors"
-          >
-            Cancel
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- Hidden file input for opening files -->
-    <input
-      type="file"
-      id="file-input"
-      accept=".txt,.uns"
-      style="display: none"
-    />
-
-    <script type="module">
-      import init, { WasmEditor } from "./pkg/uns_editor.js";
-
-      let editor = null;
-      let animationId = null;
-
-      let errorTimeout = null;
-
-      // Mongolian Unicode code point names (U+1800 to U+18AA)
-      const mongolianCodepoints = {
-        0x1800: "MONGOLIAN BIRGA",
-        0x1801: "MONGOLIAN ELLIPSIS",
-        0x1802: "MONGOLIAN COMMA",
-        0x1803: "MONGOLIAN FULL STOP",
-        0x1804: "MONGOLIAN COLON",
-        0x1805: "MONGOLIAN FOUR DOTS",
-        0x1806: "MONGOLIAN TODO SOFT HYPHEN",
-        0x1807: "MONGOLIAN SIBE SYLLABLE BOUNDARY MARKER",
-        0x1808: "MONGOLIAN MANCHU COMMA",
-        0x1809: "MONGOLIAN MANCHU FULL STOP",
-        0x180a: "MONGOLIAN NIRUGU",
-        0x180b: "MONGOLIAN FREE VARIATION SELECTOR ONE",
-        0x180c: "MONGOLIAN FREE VARIATION SELECTOR TWO",
-        0x180d: "MONGOLIAN FREE VARIATION SELECTOR THREE",
-        0x180e: "MONGOLIAN VOWEL SEPARATOR",
-        0x180f: "MONGOLIAN FREE VARIATION SELECTOR FOUR",
-        0x1810: "MONGOLIAN DIGIT ZERO",
-        0x1811: "MONGOLIAN DIGIT ONE",
-        0x1812: "MONGOLIAN DIGIT TWO",
-        0x1813: "MONGOLIAN DIGIT THREE",
-        0x1814: "MONGOLIAN DIGIT FOUR",
-        0x1815: "MONGOLIAN DIGIT FIVE",
-        0x1816: "MONGOLIAN DIGIT SIX",
-        0x1817: "MONGOLIAN DIGIT SEVEN",
-        0x1818: "MONGOLIAN DIGIT EIGHT",
-        0x1819: "MONGOLIAN DIGIT NINE",
-        0x1820: "MONGOLIAN LETTER A",
-        0x1821: "MONGOLIAN LETTER E",
-        0x1822: "MONGOLIAN LETTER I",
-        0x1823: "MONGOLIAN LETTER O",
-        0x1824: "MONGOLIAN LETTER U",
-        0x1825: "MONGOLIAN LETTER OE",
-        0x1826: "MONGOLIAN LETTER UE",
-        0x1827: "MONGOLIAN LETTER EE",
-        0x1828: "MONGOLIAN LETTER NA",
-        0x1829: "MONGOLIAN LETTER ANG",
-        0x182a: "MONGOLIAN LETTER BA",
-        0x182b: "MONGOLIAN LETTER PA",
-        0x182c: "MONGOLIAN LETTER QA",
-        0x182d: "MONGOLIAN LETTER GA",
-        0x182e: "MONGOLIAN LETTER MA",
-        0x182f: "MONGOLIAN LETTER LA",
-        0x1830: "MONGOLIAN LETTER SA",
-        0x1831: "MONGOLIAN LETTER SHA",
-        0x1832: "MONGOLIAN LETTER TA",
-        0x1833: "MONGOLIAN LETTER DA",
-        0x1834: "MONGOLIAN LETTER CHA",
-        0x1835: "MONGOLIAN LETTER JA",
-        0x1836: "MONGOLIAN LETTER YA",
-        0x1837: "MONGOLIAN LETTER RA",
-        0x1838: "MONGOLIAN LETTER WA",
-        0x1839: "MONGOLIAN LETTER FA",
-        0x183a: "MONGOLIAN LETTER KA",
-        0x183b: "MONGOLIAN LETTER KHA",
-        0x183c: "MONGOLIAN LETTER TSA",
-        0x183d: "MONGOLIAN LETTER ZA",
-        0x183e: "MONGOLIAN LETTER HAA",
-        0x183f: "MONGOLIAN LETTER ZRA",
-        0x1840: "MONGOLIAN LETTER LHA",
-        0x1841: "MONGOLIAN LETTER ZHI",
-        0x1842: "MONGOLIAN LETTER CHI",
-        0x1843: "MONGOLIAN LETTER TODO LONG VOWEL SIGN",
-        0x1844: "MONGOLIAN LETTER TODO E",
-        0x1845: "MONGOLIAN LETTER TODO I",
-        0x1846: "MONGOLIAN LETTER TODO O",
-        0x1847: "MONGOLIAN LETTER TODO U",
-        0x1848: "MONGOLIAN LETTER TODO OE",
-        0x1849: "MONGOLIAN LETTER TODO UE",
-        0x184a: "MONGOLIAN LETTER TODO ANG",
-        0x184b: "MONGOLIAN LETTER TODO BA",
-        0x184c: "MONGOLIAN LETTER TODO PA",
-        0x184d: "MONGOLIAN LETTER TODO QA",
-        0x184e: "MONGOLIAN LETTER TODO GA",
-        0x184f: "MONGOLIAN LETTER TODO MA",
-        0x1850: "MONGOLIAN LETTER TODO TA",
-        0x1851: "MONGOLIAN LETTER TODO DA",
-        0x1852: "MONGOLIAN LETTER TODO CHA",
-        0x1853: "MONGOLIAN LETTER TODO JA",
-        0x1854: "MONGOLIAN LETTER TODO TSA",
-        0x1855: "MONGOLIAN LETTER TODO YA",
-        0x1856: "MONGOLIAN LETTER TODO WA",
-        0x1857: "MONGOLIAN LETTER TODO KA",
-        0x1858: "MONGOLIAN LETTER TODO GAA",
-        0x1859: "MONGOLIAN LETTER TODO HAA",
-        0x185a: "MONGOLIAN LETTER TODO JIA",
-        0x185b: "MONGOLIAN LETTER TODO NIA",
-        0x185c: "MONGOLIAN LETTER TODO DZA",
-        0x185d: "MONGOLIAN LETTER SIBE E",
-        0x185e: "MONGOLIAN LETTER SIBE I",
-        0x185f: "MONGOLIAN LETTER SIBE IY",
-        0x1860: "MONGOLIAN LETTER SIBE UE",
-        0x1861: "MONGOLIAN LETTER SIBE U",
-        0x1862: "MONGOLIAN LETTER SIBE ANG",
-        0x1863: "MONGOLIAN LETTER SIBE KA",
-        0x1864: "MONGOLIAN LETTER SIBE GA",
-        0x1865: "MONGOLIAN LETTER SIBE HA",
-        0x1866: "MONGOLIAN LETTER SIBE PA",
-        0x1867: "MONGOLIAN LETTER SIBE SHA",
-        0x1868: "MONGOLIAN LETTER SIBE TA",
-        0x1869: "MONGOLIAN LETTER SIBE DA",
-        0x186a: "MONGOLIAN LETTER SIBE JA",
-        0x186b: "MONGOLIAN LETTER SIBE FA",
-        0x186c: "MONGOLIAN LETTER SIBE GAA",
-        0x186d: "MONGOLIAN LETTER SIBE HAA",
-        0x186e: "MONGOLIAN LETTER SIBE TSA",
-        0x186f: "MONGOLIAN LETTER SIBE ZA",
-        0x1870: "MONGOLIAN LETTER SIBE RAA",
-        0x1871: "MONGOLIAN LETTER SIBE CHA",
-        0x1872: "MONGOLIAN LETTER SIBE ZHA",
-        0x1873: "MONGOLIAN LETTER MANCHU I",
-        0x1874: "MONGOLIAN LETTER MANCHU KA",
-        0x1875: "MONGOLIAN LETTER MANCHU RA",
-        0x1876: "MONGOLIAN LETTER MANCHU FA",
-        0x1877: "MONGOLIAN LETTER MANCHU ZHA",
-        0x1878: "MONGOLIAN LETTER CHA WITH TWO DOTS",
-        0x1880: "MONGOLIAN LETTER ALI GALI ANUSVARA ONE",
-        0x1881: "MONGOLIAN LETTER ALI GALI VISARGA ONE",
-        0x1882: "MONGOLIAN LETTER ALI GALI DAMARU",
-        0x1883: "MONGOLIAN LETTER ALI GALI UBADAMA",
-        0x1884: "MONGOLIAN LETTER ALI GALI INVERTED UBADAMA",
-        0x1885: "MONGOLIAN LETTER ALI GALI BALUDA",
-        0x1886: "MONGOLIAN LETTER ALI GALI THREE BALUDA",
-        0x1887: "MONGOLIAN LETTER ALI GALI A",
-        0x1888: "MONGOLIAN LETTER ALI GALI I",
-        0x1889: "MONGOLIAN LETTER ALI GALI KA",
-        0x188a: "MONGOLIAN LETTER ALI GALI NGA",
-        0x188b: "MONGOLIAN LETTER ALI GALI CA",
-        0x188c: "MONGOLIAN LETTER ALI GALI TTA",
-        0x188d: "MONGOLIAN LETTER ALI GALI TTHA",
-        0x188e: "MONGOLIAN LETTER ALI GALI DDA",
-        0x188f: "MONGOLIAN LETTER ALI GALI NNA",
-        0x1890: "MONGOLIAN LETTER ALI GALI TA",
-        0x1891: "MONGOLIAN LETTER ALI GALI DA",
-        0x1892: "MONGOLIAN LETTER ALI GALI PA",
-        0x1893: "MONGOLIAN LETTER ALI GALI PHA",
-        0x1894: "MONGOLIAN LETTER ALI GALI SSA",
-        0x1895: "MONGOLIAN LETTER ALI GALI ZHA",
-        0x1896: "MONGOLIAN LETTER ALI GALI ZA",
-        0x1897: "MONGOLIAN LETTER ALI GALI AH",
-        0x1898: "MONGOLIAN LETTER TODO ALI GALI TA",
-        0x1899: "MONGOLIAN LETTER TODO ALI GALI ZHA",
-        0x189a: "MONGOLIAN LETTER MANCHU ALI GALI GHA",
-        0x189b: "MONGOLIAN LETTER MANCHU ALI GALI NGA",
-        0x189c: "MONGOLIAN LETTER MANCHU ALI GALI CA",
-        0x189d: "MONGOLIAN LETTER MANCHU ALI GALI JHA",
-        0x189e: "MONGOLIAN LETTER MANCHU ALI GALI TTA",
-        0x189f: "MONGOLIAN LETTER MANCHU ALI GALI DDHA",
-        0x18a0: "MONGOLIAN LETTER MANCHU ALI GALI TA",
-        0x18a1: "MONGOLIAN LETTER MANCHU ALI GALI DHA",
-        0x18a2: "MONGOLIAN LETTER MANCHU ALI GALI SSA",
-        0x18a3: "MONGOLIAN LETTER MANCHU ALI GALI CYA",
-        0x18a4: "MONGOLIAN LETTER MANCHU ALI GALI ZHA",
-        0x18a5: "MONGOLIAN LETTER MANCHU ALI GALI ZA",
-        0x18a6: "MONGOLIAN LETTER ALI GALI HALF U",
-        0x18a7: "MONGOLIAN LETTER ALI GALI HALF YA",
-        0x18a8: "MONGOLIAN LETTER MANCHU ALI GALI BHA",
-        0x18a9: "MONGOLIAN LETTER ALI GALI DAGALGA",
-        0x18aa: "MONGOLIAN LETTER MANCHU ALI GALI LHA",
-        0x202f: "NARROW NO-BREAK SPACE",
-      };
-
-      // Check if a character is in the Mongolian Unicode range
-      function isMongolianChar(codePoint) {
-        return (
-          (codePoint >= 0x1800 && codePoint <= 0x18aa) || codePoint === 0x202f
-        );
-      }
-
-      // Get Unicode info for a character
-      function getMongolianCharInfo(char) {
-        if (!char) return null;
-        const codePoint = char.codePointAt(0);
-        if (!isMongolianChar(codePoint)) return null;
-        const name = mongolianCodepoints[codePoint];
-        if (!name) return null;
-        return {
-          codePoint: codePoint,
-          hex: codePoint.toString(16).toUpperCase(),
-          name: name,
-        };
-      }
-
-      // Calculate if a color is light or dark based on luminance
-      function isLightColor(hexColor) {
-        const hex = hexColor.replace("#", "");
-        const r = parseInt(hex.substr(0, 2), 16);
-        const g = parseInt(hex.substr(2, 2), 16);
-        const b = parseInt(hex.substr(4, 2), 16);
-        // Calculate relative luminance
-        const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-        return luminance > 0.5;
-      }
-
-      // Get appropriate cursor color based on background
-      function getCursorColor(backgroundColor) {
-        return isLightColor(backgroundColor) ? "#333333" : "#ffffff";
-      }
-
-      function showError(message, duration = 5000) {
-        const errorEl = document.getElementById("error");
-        errorEl.textContent = "⚠️ Error: " + message;
-        errorEl.classList.remove("hidden");
-
-        // Clear any existing timeout
-        if (errorTimeout) {
-          clearTimeout(errorTimeout);
-        }
-
-        // Auto-hide after duration (default 5 seconds)
-        errorTimeout = setTimeout(() => {
-          hideError();
-          errorTimeout = null;
-        }, duration);
-      }
-
-      function hideError() {
-        const errorEl = document.getElementById("error");
-        errorEl.classList.add("hidden");
-
-        // Clear timeout if hiding manually
-        if (errorTimeout) {
-          clearTimeout(errorTimeout);
-          errorTimeout = null;
-        }
-      }
-
-      function updateStatus(message) {
-        document.getElementById("status-message").textContent = message;
-      }
-
-      function resizeCanvas() {
-        const canvas = document.getElementById("editor-canvas");
-        const container = document.getElementById("canvas-container");
-        const dpr = window.devicePixelRatio || 1;
-
-        const width = Math.floor(container.clientWidth * dpr);
-        const height = Math.floor(container.clientHeight * dpr);
-
-        canvas.width = width;
-        canvas.height = height;
-        canvas.style.width = container.clientWidth + "px";
-        canvas.style.height = container.clientHeight + "px";
-
-        if (editor) {
-          editor.set_size(width, height);
-        }
-
-        return { width, height };
-      }
-
-      function updateCursorPosition() {
-        try {
-          const cursor = editor.get_cursor_position();
-          const settingsJson = editor.get_settings_json();
-          const settings = JSON.parse(settingsJson);
-
-          // Update word count
-          const text = editor.get_text();
-          const wordCount = countWords(text);
-          const wordCountEl = document.getElementById("word-count");
-          wordCountEl.textContent = `Words: ${wordCount}`;
-          wordCountEl.classList.remove("hidden");
-
-          // In vertical mode, swap line and column
-          if (settings.editor.orientation === "vertical") {
-            document.getElementById("cursor-position").textContent =
-              `Line ${cursor.column}, Col ${cursor.line}`;
-          } else {
-            document.getElementById("cursor-position").textContent =
-              `Line ${cursor.line}, Col ${cursor.column}`;
-          }
-          document.getElementById("cursor-position").classList.remove("hidden");
-
-          // Update Unicode info for character before cursor
-          const unicodeInfoEl = document.getElementById("unicode-info");
-          const lines = text.split("\n");
-          const lineIndex = cursor.line - 1; // 0-indexed line number
-          const byteIndex = cursor.column - 1; // cursor.column might be byte-based
-
-          if (lineIndex >= 0 && lineIndex < lines.length && byteIndex > 0) {
-            const line = lines[lineIndex];
-            // Convert byte index to character index
-            // cosmic_text may use byte indices, Mongolian chars are 3 bytes in UTF-8
-            let charPos = 0;
-            let bytePos = 0;
-            const encoder = new TextEncoder();
-            const chars = Array.from(line);
-
-            for (let i = 0; i < chars.length; i++) {
-              const charBytes = encoder.encode(chars[i]).length;
-              bytePos += charBytes;
-              if (bytePos >= byteIndex) {
-                charPos = i + 1; // 1-indexed position of character cursor is after
-                break;
-              }
-            }
-
-            // Get character before cursor position (charPos is 1-indexed)
-            if (charPos > 0 && charPos <= chars.length) {
-              const char = chars[charPos - 1]; // Convert to 0-indexed
-              const charInfo = getMongolianCharInfo(char);
-              if (charInfo) {
-                unicodeInfoEl.textContent = `U+${charInfo.hex} ${charInfo.name}`;
-                unicodeInfoEl.classList.remove("hidden");
-              } else {
-                unicodeInfoEl.classList.add("hidden");
-              }
-            } else {
-              unicodeInfoEl.classList.add("hidden");
-            }
-          } else {
-            unicodeInfoEl.classList.add("hidden");
-          }
-        } catch (e) {
-          // Ignore if methods not available
-        }
-      }
-
-      function countWords(text) {
-        if (!text || text.trim().length === 0) {
-          return 0;
-        }
-
-        // Remove format control characters (U+180B-U+180F, U+202F)
-        // These should not be counted as spaces or affect word boundaries
-        const cleanText = text.replace(/[\u180B-\u180F\u202F]/g, "");
-
-        // Split by whitespace and filter out empty strings
-        const words = cleanText
-          .trim()
-          .split(/\s+/)
-          .filter((word) => word.length > 0);
-        return words.length;
-      }
-
-      function animate(timestamp) {
-        if (editor) {
-          try {
-            editor.render(timestamp);
-            updateCursorPosition();
-          } catch (e) {
-            console.error("Render error:", e);
-            showError("Render failed: " + e.message);
-          }
-        }
-        animationId = requestAnimationFrame(animate);
-      }
-
-      // Settings Modal Management
-      class SettingsModal {
-        constructor(editor) {
-          this.editor = editor;
-          this.modal = document.getElementById("settings-modal");
-          this.initElements();
-          this.attachEventListeners();
-        }
-
-        initElements() {
-          this.elements = {
-            fontFamily: document.getElementById("font-family"),
-            fontSize: document.getElementById("font-size"),
-            fontSizeValue: document.getElementById("font-size-value"),
-            lineHeight: document.getElementById("line-height"),
-            lineHeightValue: document.getElementById("line-height-value"),
-            fontPreview: document.getElementById("font-preview"),
-            textColor: document.getElementById("text-color"),
-            textColorHex: document.getElementById("text-color-hex"),
-            backgroundColor: document.getElementById("background-color"),
-            backgroundColorHex: document.getElementById("background-color-hex"),
-          };
-
-          this.buttons = {
-            open: document.getElementById("settings-btn"),
-            close: document.getElementById("settings-close"),
-            save: document.getElementById("settings-save"),
-            cancel: document.getElementById("settings-cancel"),
-            reset: document.getElementById("settings-reset"),
-          };
-        }
-
-        attachEventListeners() {
-          // Add both click and touch support for all modal buttons
-          const addHandler = (button, handler) => {
-            button.addEventListener("click", handler);
-            button.addEventListener("touchend", (e) => {
-              e.preventDefault();
-              handler();
-            });
-          };
-
-          addHandler(this.buttons.open, () => this.open());
-          addHandler(this.buttons.close, () => this.close());
-          addHandler(this.buttons.cancel, () => this.close());
-          addHandler(this.buttons.save, () => this.save());
-          addHandler(this.buttons.reset, () => this.reset());
-
-          // Live preview for font size
-          this.elements.fontSize.addEventListener("input", (e) => {
-            const size = e.target.value;
-            this.elements.fontSizeValue.textContent = `${size}px`;
-            this.elements.fontPreview.style.fontSize = `${size}px`;
-          });
-
-          // Live preview for line height
-          this.elements.lineHeight.addEventListener("input", (e) => {
-            const height = e.target.value;
-            this.elements.lineHeightValue.textContent = `${height}px`;
-            this.elements.fontPreview.style.lineHeight = `${height}px`;
-          });
-
-          // Live preview for font family
-          this.elements.fontFamily.addEventListener("change", (e) => {
-            this.elements.fontPreview.style.fontFamily = e.target.value;
-          });
-
-          // Color picker sync
-          this.elements.textColor.addEventListener("input", (e) => {
-            this.elements.textColorHex.value = e.target.value;
-            this.elements.fontPreview.style.color = e.target.value;
-          });
-
-          this.elements.textColorHex.addEventListener("input", (e) => {
-            if (/^#[0-9A-F]{6}$/i.test(e.target.value)) {
-              this.elements.textColor.value = e.target.value;
-              this.elements.fontPreview.style.color = e.target.value;
-            }
-          });
-
-          this.elements.backgroundColor.addEventListener("input", (e) => {
-            this.elements.backgroundColorHex.value = e.target.value;
-            this.elements.fontPreview.style.backgroundColor = e.target.value;
-          });
-
-          this.elements.backgroundColorHex.addEventListener("input", (e) => {
-            if (/^#[0-9A-F]{6}$/i.test(e.target.value)) {
-              this.elements.backgroundColor.value = e.target.value;
-              this.elements.fontPreview.style.backgroundColor = e.target.value;
-            }
-          });
-
-          // Close on outside click
-          this.modal.addEventListener("click", (e) => {
-            if (e.target === this.modal) this.close();
-          });
-        }
-
-        open() {
-          this.loadSettings();
-          this.modal.classList.remove("hidden");
-          this.modal.classList.add("flex");
-        }
-
-        close() {
-          this.modal.classList.add("hidden");
-          this.modal.classList.remove("flex");
-
-          // Focus canvas after closing modal
-          const canvas = document.getElementById("editor-canvas");
-          const mobileInput = document.getElementById("mobile-input");
-          const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(
-            navigator.userAgent,
-          );
-
-          if (isMobileDevice) {
-            mobileInput.focus();
-          } else {
-            canvas.focus();
-          }
-        }
-
-        loadSettings() {
-          try {
-            const settings = JSON.parse(this.editor.get_settings_json());
-
-            this.elements.fontFamily.value = settings.fonts.font_family;
-            this.elements.fontSize.value = settings.fonts.font_size;
-            this.elements.fontSizeValue.textContent = `${settings.fonts.font_size}px`;
-            this.elements.lineHeight.value = settings.fonts.line_height;
-            this.elements.lineHeightValue.textContent = `${settings.fonts.line_height}px`;
-
-            this.elements.fontPreview.style.fontFamily =
-              settings.fonts.font_family;
-            this.elements.fontPreview.style.fontSize = `${settings.fonts.font_size}px`;
-            this.elements.fontPreview.style.lineHeight = `${settings.fonts.line_height}px`;
-
-            this.elements.textColor.value = settings.appearance.text_color;
-            this.elements.textColorHex.value = settings.appearance.text_color;
-            this.elements.backgroundColor.value =
-              settings.appearance.background_color;
-            this.elements.backgroundColorHex.value =
-              settings.appearance.background_color;
-            this.elements.fontPreview.style.color =
-              settings.appearance.text_color;
-            this.elements.fontPreview.style.backgroundColor =
-              settings.appearance.background_color;
-          } catch (e) {
-            console.error("Failed to load settings:", e);
-          }
-        }
-
-        save() {
-          try {
-            const settings = {
-              appearance: {
-                text_color: this.elements.textColor.value,
-                background_color: this.elements.backgroundColor.value,
-                cursor_color: getCursorColor(
-                  this.elements.backgroundColor.value,
-                ),
-                selection_color: "#5078c880",
-                gutter_background: "#252526",
-                line_number_color: "#858585",
-              },
-              fonts: {
-                font_family: this.elements.fontFamily.value,
-                font_size: parseFloat(this.elements.fontSize.value),
-                line_height: parseFloat(this.elements.lineHeight.value),
-              },
-              editor: {
-                orientation: "vertical",
-              },
+            // Mongolian Unicode code point names (U+1800 to U+18AA)
+            const mongolianCodepoints = {
+                0x1800: "MONGOLIAN BIRGA",
+                0x1801: "MONGOLIAN ELLIPSIS",
+                0x1802: "MONGOLIAN COMMA",
+                0x1803: "MONGOLIAN FULL STOP",
+                0x1804: "MONGOLIAN COLON",
+                0x1805: "MONGOLIAN FOUR DOTS",
+                0x1806: "MONGOLIAN TODO SOFT HYPHEN",
+                0x1807: "MONGOLIAN SIBE SYLLABLE BOUNDARY MARKER",
+                0x1808: "MONGOLIAN MANCHU COMMA",
+                0x1809: "MONGOLIAN MANCHU FULL STOP",
+                0x180a: "MONGOLIAN NIRUGU",
+                0x180b: "MONGOLIAN FREE VARIATION SELECTOR ONE",
+                0x180c: "MONGOLIAN FREE VARIATION SELECTOR TWO",
+                0x180d: "MONGOLIAN FREE VARIATION SELECTOR THREE",
+                0x180e: "MONGOLIAN VOWEL SEPARATOR",
+                0x180f: "MONGOLIAN FREE VARIATION SELECTOR FOUR",
+                0x1810: "MONGOLIAN DIGIT ZERO",
+                0x1811: "MONGOLIAN DIGIT ONE",
+                0x1812: "MONGOLIAN DIGIT TWO",
+                0x1813: "MONGOLIAN DIGIT THREE",
+                0x1814: "MONGOLIAN DIGIT FOUR",
+                0x1815: "MONGOLIAN DIGIT FIVE",
+                0x1816: "MONGOLIAN DIGIT SIX",
+                0x1817: "MONGOLIAN DIGIT SEVEN",
+                0x1818: "MONGOLIAN DIGIT EIGHT",
+                0x1819: "MONGOLIAN DIGIT NINE",
+                0x1820: "MONGOLIAN LETTER A",
+                0x1821: "MONGOLIAN LETTER E",
+                0x1822: "MONGOLIAN LETTER I",
+                0x1823: "MONGOLIAN LETTER O",
+                0x1824: "MONGOLIAN LETTER U",
+                0x1825: "MONGOLIAN LETTER OE",
+                0x1826: "MONGOLIAN LETTER UE",
+                0x1827: "MONGOLIAN LETTER EE",
+                0x1828: "MONGOLIAN LETTER NA",
+                0x1829: "MONGOLIAN LETTER ANG",
+                0x182a: "MONGOLIAN LETTER BA",
+                0x182b: "MONGOLIAN LETTER PA",
+                0x182c: "MONGOLIAN LETTER QA",
+                0x182d: "MONGOLIAN LETTER GA",
+                0x182e: "MONGOLIAN LETTER MA",
+                0x182f: "MONGOLIAN LETTER LA",
+                0x1830: "MONGOLIAN LETTER SA",
+                0x1831: "MONGOLIAN LETTER SHA",
+                0x1832: "MONGOLIAN LETTER TA",
+                0x1833: "MONGOLIAN LETTER DA",
+                0x1834: "MONGOLIAN LETTER CHA",
+                0x1835: "MONGOLIAN LETTER JA",
+                0x1836: "MONGOLIAN LETTER YA",
+                0x1837: "MONGOLIAN LETTER RA",
+                0x1838: "MONGOLIAN LETTER WA",
+                0x1839: "MONGOLIAN LETTER FA",
+                0x183a: "MONGOLIAN LETTER KA",
+                0x183b: "MONGOLIAN LETTER KHA",
+                0x183c: "MONGOLIAN LETTER TSA",
+                0x183d: "MONGOLIAN LETTER ZA",
+                0x183e: "MONGOLIAN LETTER HAA",
+                0x183f: "MONGOLIAN LETTER ZRA",
+                0x1840: "MONGOLIAN LETTER LHA",
+                0x1841: "MONGOLIAN LETTER ZHI",
+                0x1842: "MONGOLIAN LETTER CHI",
+                0x1843: "MONGOLIAN LETTER TODO LONG VOWEL SIGN",
+                0x1844: "MONGOLIAN LETTER TODO E",
+                0x1845: "MONGOLIAN LETTER TODO I",
+                0x1846: "MONGOLIAN LETTER TODO O",
+                0x1847: "MONGOLIAN LETTER TODO U",
+                0x1848: "MONGOLIAN LETTER TODO OE",
+                0x1849: "MONGOLIAN LETTER TODO UE",
+                0x184a: "MONGOLIAN LETTER TODO ANG",
+                0x184b: "MONGOLIAN LETTER TODO BA",
+                0x184c: "MONGOLIAN LETTER TODO PA",
+                0x184d: "MONGOLIAN LETTER TODO QA",
+                0x184e: "MONGOLIAN LETTER TODO GA",
+                0x184f: "MONGOLIAN LETTER TODO MA",
+                0x1850: "MONGOLIAN LETTER TODO TA",
+                0x1851: "MONGOLIAN LETTER TODO DA",
+                0x1852: "MONGOLIAN LETTER TODO CHA",
+                0x1853: "MONGOLIAN LETTER TODO JA",
+                0x1854: "MONGOLIAN LETTER TODO TSA",
+                0x1855: "MONGOLIAN LETTER TODO YA",
+                0x1856: "MONGOLIAN LETTER TODO WA",
+                0x1857: "MONGOLIAN LETTER TODO KA",
+                0x1858: "MONGOLIAN LETTER TODO GAA",
+                0x1859: "MONGOLIAN LETTER TODO HAA",
+                0x185a: "MONGOLIAN LETTER TODO JIA",
+                0x185b: "MONGOLIAN LETTER TODO NIA",
+                0x185c: "MONGOLIAN LETTER TODO DZA",
+                0x185d: "MONGOLIAN LETTER SIBE E",
+                0x185e: "MONGOLIAN LETTER SIBE I",
+                0x185f: "MONGOLIAN LETTER SIBE IY",
+                0x1860: "MONGOLIAN LETTER SIBE UE",
+                0x1861: "MONGOLIAN LETTER SIBE U",
+                0x1862: "MONGOLIAN LETTER SIBE ANG",
+                0x1863: "MONGOLIAN LETTER SIBE KA",
+                0x1864: "MONGOLIAN LETTER SIBE GA",
+                0x1865: "MONGOLIAN LETTER SIBE HA",
+                0x1866: "MONGOLIAN LETTER SIBE PA",
+                0x1867: "MONGOLIAN LETTER SIBE SHA",
+                0x1868: "MONGOLIAN LETTER SIBE TA",
+                0x1869: "MONGOLIAN LETTER SIBE DA",
+                0x186a: "MONGOLIAN LETTER SIBE JA",
+                0x186b: "MONGOLIAN LETTER SIBE FA",
+                0x186c: "MONGOLIAN LETTER SIBE GAA",
+                0x186d: "MONGOLIAN LETTER SIBE HAA",
+                0x186e: "MONGOLIAN LETTER SIBE TSA",
+                0x186f: "MONGOLIAN LETTER SIBE ZA",
+                0x1870: "MONGOLIAN LETTER SIBE RAA",
+                0x1871: "MONGOLIAN LETTER SIBE CHA",
+                0x1872: "MONGOLIAN LETTER SIBE ZHA",
+                0x1873: "MONGOLIAN LETTER MANCHU I",
+                0x1874: "MONGOLIAN LETTER MANCHU KA",
+                0x1875: "MONGOLIAN LETTER MANCHU RA",
+                0x1876: "MONGOLIAN LETTER MANCHU FA",
+                0x1877: "MONGOLIAN LETTER MANCHU ZHA",
+                0x1878: "MONGOLIAN LETTER CHA WITH TWO DOTS",
+                0x1880: "MONGOLIAN LETTER ALI GALI ANUSVARA ONE",
+                0x1881: "MONGOLIAN LETTER ALI GALI VISARGA ONE",
+                0x1882: "MONGOLIAN LETTER ALI GALI DAMARU",
+                0x1883: "MONGOLIAN LETTER ALI GALI UBADAMA",
+                0x1884: "MONGOLIAN LETTER ALI GALI INVERTED UBADAMA",
+                0x1885: "MONGOLIAN LETTER ALI GALI BALUDA",
+                0x1886: "MONGOLIAN LETTER ALI GALI THREE BALUDA",
+                0x1887: "MONGOLIAN LETTER ALI GALI A",
+                0x1888: "MONGOLIAN LETTER ALI GALI I",
+                0x1889: "MONGOLIAN LETTER ALI GALI KA",
+                0x188a: "MONGOLIAN LETTER ALI GALI NGA",
+                0x188b: "MONGOLIAN LETTER ALI GALI CA",
+                0x188c: "MONGOLIAN LETTER ALI GALI TTA",
+                0x188d: "MONGOLIAN LETTER ALI GALI TTHA",
+                0x188e: "MONGOLIAN LETTER ALI GALI DDA",
+                0x188f: "MONGOLIAN LETTER ALI GALI NNA",
+                0x1890: "MONGOLIAN LETTER ALI GALI TA",
+                0x1891: "MONGOLIAN LETTER ALI GALI DA",
+                0x1892: "MONGOLIAN LETTER ALI GALI PA",
+                0x1893: "MONGOLIAN LETTER ALI GALI PHA",
+                0x1894: "MONGOLIAN LETTER ALI GALI SSA",
+                0x1895: "MONGOLIAN LETTER ALI GALI ZHA",
+                0x1896: "MONGOLIAN LETTER ALI GALI ZA",
+                0x1897: "MONGOLIAN LETTER ALI GALI AH",
+                0x1898: "MONGOLIAN LETTER TODO ALI GALI TA",
+                0x1899: "MONGOLIAN LETTER TODO ALI GALI ZHA",
+                0x189a: "MONGOLIAN LETTER MANCHU ALI GALI GHA",
+                0x189b: "MONGOLIAN LETTER MANCHU ALI GALI NGA",
+                0x189c: "MONGOLIAN LETTER MANCHU ALI GALI CA",
+                0x189d: "MONGOLIAN LETTER MANCHU ALI GALI JHA",
+                0x189e: "MONGOLIAN LETTER MANCHU ALI GALI TTA",
+                0x189f: "MONGOLIAN LETTER MANCHU ALI GALI DDHA",
+                0x18a0: "MONGOLIAN LETTER MANCHU ALI GALI TA",
+                0x18a1: "MONGOLIAN LETTER MANCHU ALI GALI DHA",
+                0x18a2: "MONGOLIAN LETTER MANCHU ALI GALI SSA",
+                0x18a3: "MONGOLIAN LETTER MANCHU ALI GALI CYA",
+                0x18a4: "MONGOLIAN LETTER MANCHU ALI GALI ZHA",
+                0x18a5: "MONGOLIAN LETTER MANCHU ALI GALI ZA",
+                0x18a6: "MONGOLIAN LETTER ALI GALI HALF U",
+                0x18a7: "MONGOLIAN LETTER ALI GALI HALF YA",
+                0x18a8: "MONGOLIAN LETTER MANCHU ALI GALI BHA",
+                0x18a9: "MONGOLIAN LETTER ALI GALI DAGALGA",
+                0x18aa: "MONGOLIAN LETTER MANCHU ALI GALI LHA",
+                0x202f: "NARROW NO-BREAK SPACE",
             };
 
-            this.editor.set_settings_json(JSON.stringify(settings));
-            localStorage.setItem(
-              "uns-editor-settings",
-              JSON.stringify(settings),
-            );
-
-            this.close();
-            updateStatus("Settings saved successfully");
-          } catch (e) {
-            console.error("Failed to save settings:", e);
-            alert("Failed to save settings: " + e.message);
-          }
-        }
-
-        reset() {
-          if (confirm("Reset all settings to defaults?")) {
-            localStorage.removeItem("uns-editor-settings");
-            const defaults = {
-              appearance: {
-                text_color: "#c8c8c8",
-                background_color: "#2b2b2b",
-                cursor_color: getCursorColor("#2b2b2b"),
-                selection_color: "#5078c880",
-                gutter_background: "#252526",
-                line_number_color: "#858585",
-              },
-              fonts: {
-                font_family: "Noto Sans Mongolian",
-                font_size: 24,
-                line_height: 30,
-              },
-              editor: {
-                orientation: "vertical",
-              },
-            };
-            this.editor.set_settings_json(JSON.stringify(defaults));
-            this.loadSettings();
-            updateStatus("Settings reset to defaults");
-          }
-        }
-      }
-
-      // File Operations Management
-      class FileManager {
-        constructor(editor) {
-          this.editor = editor;
-          this.saveModal = document.getElementById("save-modal");
-          this.fileInput = document.getElementById("file-input");
-          this.initButtons();
-          this.attachEventListeners();
-        }
-
-        initButtons() {
-          this.buttons = {
-            save: document.getElementById("save-btn"),
-            open: document.getElementById("open-btn"),
-            saveModalClose: document.getElementById("save-modal-close"),
-            saveModalCancel: document.getElementById("save-modal-cancel"),
-            saveTxt: document.getElementById("save-txt-btn"),
-            saveUns: document.getElementById("save-uns-btn"),
-          };
-          this.filenameInput = document.getElementById("filename-input");
-        }
-
-        attachEventListeners() {
-          // Add both click and touch support (mobile + desktop)
-          const addHandler = (button, handler) => {
-            if (!button) return;
-            button.addEventListener("click", handler);
-            button.addEventListener("touchend", (e) => {
-              e.preventDefault();
-              handler();
-            });
-          };
-
-          addHandler(this.buttons.save, () => this.openSaveModal());
-          addHandler(this.buttons.open, () => this.openFile());
-          addHandler(this.buttons.saveModalClose, () => this.closeSaveModal());
-          addHandler(this.buttons.saveModalCancel, () => this.closeSaveModal());
-          addHandler(this.buttons.saveTxt, () => this.saveAsTxt());
-          addHandler(this.buttons.saveUns, () => this.saveAsUns());
-
-          // File input change handler
-          this.fileInput.addEventListener("change", (e) =>
-            this.handleFileSelect(e),
-          );
-
-          // Close modal on outside click
-          this.saveModal.addEventListener("click", (e) => {
-            if (e.target === this.saveModal) this.closeSaveModal();
-          });
-
-          // Enter key in filename input saves as UNS (default format)
-          this.filenameInput.addEventListener("keydown", (e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              this.saveAsUns();
-            }
-          });
-
-          // Drag and drop support
-          this.setupDragAndDrop();
-        }
-
-        setupDragAndDrop() {
-          const dropZone = document.getElementById("canvas-container");
-          const canvas = document.getElementById("editor-canvas");
-
-          // Prevent default drag behaviors on the entire document
-          ["dragenter", "dragover", "dragleave", "drop"].forEach(
-            (eventName) => {
-              document.body.addEventListener(
-                eventName,
-                (e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                },
-                false,
-              );
-            },
-          );
-
-          // Highlight drop zone when dragging over
-          ["dragenter", "dragover"].forEach((eventName) => {
-            dropZone.addEventListener(
-              eventName,
-              (e) => {
-                e.preventDefault();
-                dropZone.classList.add("bg-blue-900", "bg-opacity-20");
-                canvas.style.opacity = "0.5";
-              },
-              false,
-            );
-          });
-
-          ["dragleave", "drop"].forEach((eventName) => {
-            dropZone.addEventListener(
-              eventName,
-              (e) => {
-                e.preventDefault();
-                dropZone.classList.remove("bg-blue-900", "bg-opacity-20");
-                canvas.style.opacity = "1";
-              },
-              false,
-            );
-          });
-
-          // Handle dropped files
-          dropZone.addEventListener(
-            "drop",
-            (e) => {
-              e.preventDefault();
-              const files = e.dataTransfer.files;
-
-              if (files.length > 0) {
-                this.handleDroppedFile(files[0]);
-              }
-            },
-            false,
-          );
-        }
-
-        async handleDroppedFile(file) {
-          try {
-            // Enforce file size limit (10MB)
-            if (file.size > 10 * 1024 * 1024) {
-              showError(
-                "File is too large (>10MB). Please select a smaller file.",
-              );
-              return;
-            }
-
-            const extension = file.name.split(".").pop().toLowerCase();
-
-            if (extension !== "txt" && extension !== "uns") {
-              showError(
-                "Unsupported file type. Please drop .txt or .uns files only.",
-              );
-              return;
-            }
-
-            const text = await this.readFileAsText(file);
-
-            if (extension === "txt") {
-              this.loadTxtFile(text, file.name);
-            } else if (extension === "uns") {
-              this.loadUnsFile(text, file.name);
-            }
-          } catch (e) {
-            console.error("File drop error:", e);
-            showError("Failed to open dropped file: " + e.message);
-          }
-        }
-
-        openSaveModal() {
-          // Generate default filename with timestamp
-          const date = new Date();
-          const timestamp = date
-            .toISOString()
-            .replace(/:/g, "-")
-            .replace(/\..+/, "")
-            .replace("T", "_");
-          this.filenameInput.value = `uns-document_${timestamp}`;
-
-          this.saveModal.classList.remove("hidden");
-          this.saveModal.classList.add("flex");
-
-          // Focus and select the filename input for easy editing
-          setTimeout(() => {
-            this.filenameInput.focus();
-            this.filenameInput.select();
-          }, 100);
-        }
-
-        closeSaveModal() {
-          this.saveModal.classList.add("hidden");
-          this.saveModal.classList.remove("flex");
-
-          // Focus canvas after closing modal
-          const canvas = document.getElementById("editor-canvas");
-          const mobileInput = document.getElementById("mobile-input");
-          const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(
-            navigator.userAgent,
-          );
-
-          if (isMobileDevice) {
-            mobileInput.focus();
-          } else {
-            canvas.focus();
-          }
-        }
-
-        saveAsTxt() {
-          try {
-            const text = this.editor.get_text();
-            const blob = new Blob([text], {
-              type: "text/plain;charset=utf-8",
-            });
-            const filename = this.generateFilename("txt");
-            this.downloadBlob(blob, filename);
-            this.closeSaveModal();
-            updateStatus(`Saved as ${filename}`);
-          } catch (e) {
-            console.error("Save TXT error:", e);
-            showError("Failed to save TXT: " + e.message);
-          }
-        }
-
-        saveAsUns() {
-          try {
-            const text = this.editor.get_text();
-            const settingsJson = this.editor.get_settings_json();
-            const settings = JSON.parse(settingsJson);
-            const cursor = this.editor.get_cursor_position();
-
-            const now = new Date().toISOString();
-
-            const unsDocument = {
-              version: "1.0.0",
-              metadata: {
-                created: now,
-                modified: now,
-                app: "UNS Editor",
-              },
-              content: {
-                text: text,
-                cursor: {
-                  line: cursor.line,
-                  column: cursor.column,
-                },
-              },
-              settings: settings,
-            };
-
-            const json = JSON.stringify(unsDocument, null, 2);
-            const blob = new Blob([json], {
-              type: "application/json;charset=utf-8",
-            });
-            const filename = this.generateFilename("uns");
-            this.downloadBlob(blob, filename);
-            this.closeSaveModal();
-            updateStatus(`Saved as ${filename}`);
-          } catch (e) {
-            console.error("Save UNS error:", e);
-            showError("Failed to save UNS: " + e.message);
-          }
-        }
-
-        downloadBlob(blob, filename) {
-          // Create temporary download link
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = url;
-          a.download = filename;
-          a.style.display = "none";
-          document.body.appendChild(a);
-          a.click();
-
-          // Cleanup
-          setTimeout(() => {
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-          }, 100);
-        }
-
-        generateFilename(extension) {
-          // Get filename from input, trim whitespace
-          let filename = this.filenameInput.value.trim();
-
-          // If empty, use default
-          if (!filename) {
-            const date = new Date();
-            const timestamp = date
-              .toISOString()
-              .replace(/:/g, "-")
-              .replace(/\..+/, "")
-              .replace("T", "_");
-            filename = `uns-document_${timestamp}`;
-          }
-
-          // Remove any existing extension
-          filename = filename.replace(/\.(txt|uns)$/i, "");
-
-          // Sanitize filename (remove invalid characters)
-          filename = filename.replace(/[<>:"/\\|?*]/g, "_");
-
-          return `${filename}.${extension}`;
-        }
-
-        openFile() {
-          // Trigger file input click (opens native file picker)
-          this.fileInput.click();
-        }
-
-        async handleFileSelect(event) {
-          const file = event.target.files[0];
-          if (!file) return;
-
-          try {
-            // Enforce file size limit (10MB)
-            if (file.size > 10 * 1024 * 1024) {
-              showError(
-                "File is too large (>10MB). Please select a smaller file.",
-              );
-              return;
-            }
-
-            const text = await this.readFileAsText(file);
-            const extension = file.name.split(".").pop().toLowerCase();
-
-            if (extension === "txt") {
-              this.loadTxtFile(text, file.name);
-            } else if (extension === "uns") {
-              this.loadUnsFile(text, file.name);
-            } else {
-              showError(
-                "Unsupported file type. Please select .txt or .uns files.",
-              );
-            }
-          } catch (e) {
-            console.error("File open error:", e);
-            showError("Failed to open file: " + e.message);
-          } finally {
-            // Reset file input so same file can be opened again
-            this.fileInput.value = "";
-          }
-        }
-
-        readFileAsText(file) {
-          return new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = (e) => resolve(e.target.result);
-            reader.onerror = (e) => reject(new Error("Failed to read file"));
-            reader.readAsText(file);
-          });
-        }
-
-        loadTxtFile(text, filename) {
-          // Simple: just set the text, keep current settings
-          this.editor.set_text(text);
-          updateStatus(`Opened ${filename} (plain text)`);
-        }
-
-        loadUnsFile(text, filename) {
-          try {
-            const unsDocument = JSON.parse(text);
-
-            // Version check
-            const version = unsDocument.version || "1.0.0";
-            const [major] = version.split(".").map(Number);
-
-            if (major !== 1) {
-              showError(
-                `Unsupported UNS version: ${version}. This editor supports version 1.x`,
-              );
-              return;
-            }
-
-            // Validate required fields
-            if (
-              !unsDocument.content ||
-              typeof unsDocument.content.text !== "string"
-            ) {
-              throw new Error("Invalid UNS file: missing content.text");
-            }
-
-            // Load text content
-            this.editor.set_text(unsDocument.content.text);
-
-            // Load settings if present
-            if (unsDocument.settings) {
-              try {
-                const settingsJson = JSON.stringify(unsDocument.settings);
-                this.editor.set_settings_json(settingsJson);
-
-                // Persist to localStorage
-                localStorage.setItem("uns-editor-settings", settingsJson);
-              } catch (e) {
-                console.error("Failed to apply settings:", e);
-                showError(
-                  "Settings could not be loaded, using current settings",
+            // Check if a character is in the Mongolian Unicode range
+            function isMongolianChar(codePoint) {
+                return (
+                    (codePoint >= 0x1800 && codePoint <= 0x18aa) ||
+                    codePoint === 0x202f
                 );
-              }
             }
 
-            updateStatus(`Opened ${filename} (with settings)`);
-
-            // Log metadata for debugging
-            if (unsDocument.metadata) {
-              const modified = unsDocument.metadata.modified
-                ? new Date(unsDocument.metadata.modified).toLocaleString()
-                : "unknown";
-              console.log(`Document last modified: ${modified}`);
-            }
-          } catch (e) {
-            if (e instanceof SyntaxError) {
-              showError("Invalid UNS file: Not valid JSON");
-            } else {
-              showError("Failed to load UNS file: " + e.message);
-            }
-            console.error("UNS load error:", e);
-          }
-        }
-      }
-
-      async function main() {
-        try {
-          // Detect mobile device first (needed throughout initialization)
-          const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(
-            navigator.userAgent,
-          );
-
-          // Input mode state - starts active (true = convert Latin to Mongolian)
-          let isInputModeActive = true;
-          let latinToMongolianMap = {};
-          let bufferedFormatControl = null; // Buffer for U+202F or U+180E
-
-          // Initialize WASM
-          await init();
-
-          // Setup canvas
-          const { width, height } = resizeCanvas();
-
-          // Create editor with timeout (async - waits for font to load)
-          updateStatus("Loading fonts...");
-
-          const editorPromise = WasmEditor.new("editor-canvas");
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("Font loading timeout")), 30000),
-          );
-
-          editor = await Promise.race([editorPromise, timeoutPromise]);
-          editor.set_size(width, height);
-
-          // Load saved settings
-          const savedSettings = localStorage.getItem("uns-editor-settings");
-          if (savedSettings) {
-            try {
-              editor.set_settings_json(savedSettings);
-              updateStatus("Settings loaded from storage");
-            } catch (e) {
-              console.error("Failed to load saved settings:", e);
-            }
-          }
-
-          // Initialize settings modal
-          const settingsModal = new SettingsModal(editor);
-
-          // Initialize file manager
-          const fileManager = new FileManager(editor);
-
-          // Keyboard shortcuts for save/open
-          document.addEventListener("keydown", (e) => {
-            // Ctrl+S or Cmd+S - Open save modal
-            if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-              e.preventDefault();
-              fileManager.openSaveModal();
+            // Get Unicode info for a character
+            function getMongolianCharInfo(char) {
+                if (!char) return null;
+                const codePoint = char.codePointAt(0);
+                if (!isMongolianChar(codePoint)) return null;
+                const name = mongolianCodepoints[codePoint];
+                if (!name) return null;
+                return {
+                    codePoint: codePoint,
+                    hex: codePoint.toString(16).toUpperCase(),
+                    name: name,
+                };
             }
 
-            // Ctrl+O or Cmd+O - Open file picker
-            if ((e.ctrlKey || e.metaKey) && e.key === "o") {
-              e.preventDefault();
-              fileManager.openFile();
+            // Calculate if a color is light or dark based on luminance
+            function isLightColor(hexColor) {
+                const hex = hexColor.replace("#", "");
+                const r = parseInt(hex.substr(0, 2), 16);
+                const g = parseInt(hex.substr(2, 2), 16);
+                const b = parseInt(hex.substr(4, 2), 16);
+                // Calculate relative luminance
+                const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+                return luminance > 0.5;
             }
 
-            // Ctrl+Alt+I - Toggle input mode
-            if (
-              (e.ctrlKey || e.metaKey) &&
-              e.altKey &&
-              (e.key === "i" || e.key === "I")
-            ) {
-              e.preventDefault();
-              const keyboardBtn = document.getElementById("keyboard-btn");
-              if (keyboardBtn) {
-                keyboardBtn.click();
-              }
+            // Get appropriate cursor color based on background
+            function getCursorColor(backgroundColor) {
+                return isLightColor(backgroundColor) ? "#333333" : "#ffffff";
             }
 
-            // Escape - Close save modal
-            if (
-              e.key === "Escape" &&
-              !fileManager.saveModal.classList.contains("hidden")
-            ) {
-              fileManager.closeSaveModal();
-            }
-          });
+            function showError(message, duration = 5000) {
+                const errorEl = document.getElementById("error");
+                errorEl.textContent = "⚠️ Error: " + message;
+                errorEl.classList.remove("hidden");
 
-          // Hide loading
-          document.getElementById("loading").classList.add("hidden");
-          hideError();
-          updateStatus(
-            "Ready | Click to edit | Ctrl+Alt+I to toggle input mode",
-          );
-
-          // Start animation loop
-          animate(0);
-
-          // Event listeners
-          const canvas = document.getElementById("editor-canvas");
-          const mobileInput = document.getElementById("mobile-input");
-
-          canvas.addEventListener("keydown", (e) => {
-            try {
-              // Intercept character input for Latin to Mongolian conversion
-              if (
-                isInputModeActive &&
-                e.key.length === 1 &&
-                !e.ctrlKey &&
-                !e.metaKey &&
-                !e.altKey
-              ) {
-                const convertedChar = latinToMongolianMap[e.key];
-                if (convertedChar) {
-                  e.preventDefault();
-
-                  // Check if this is a format control character that should be buffered
-                  if (convertedChar === "\u202F") {
-                    // Buffer U+202F from '-' key, don't insert yet
-                    bufferedFormatControl = "\u202F";
-                    return;
-                  } else if (convertedChar === "\u180E") {
-                    // Buffer U+180E from '_' key, don't insert yet
-                    bufferedFormatControl = "\u180E";
-                    return;
-                  }
-
-                  // If there's a buffered format control, insert it before the current character
-                  if (bufferedFormatControl) {
-                    editor.insert_text(bufferedFormatControl + convertedChar);
-                    bufferedFormatControl = null;
-                  } else {
-                    editor.insert_text(convertedChar);
-                  }
-                  return;
-                }
-              }
-
-              // For non-mapped keys, clear the buffer
-              bufferedFormatControl = null;
-
-              editor.handle_key_down(e);
-            } catch (err) {
-              console.error("Key down error:", err);
-            }
-          });
-
-          canvas.addEventListener("keyup", (e) => {
-            try {
-              editor.handle_key_up(e);
-            } catch (err) {
-              console.error("Key up error:", err);
-            }
-          });
-
-          // Helper to extract coordinates from touch or mouse event
-          function getEventCoordinates(e) {
-            if (e.touches && e.touches.length > 0) {
-              // Touch event
-              return {
-                clientX: e.touches[0].clientX,
-                clientY: e.touches[0].clientY,
-              };
-            } else if (e.changedTouches && e.changedTouches.length > 0) {
-              // Touch end event
-              return {
-                clientX: e.changedTouches[0].clientX,
-                clientY: e.changedTouches[0].clientY,
-              };
-            } else {
-              // Mouse event
-              return {
-                clientX: e.clientX,
-                clientY: e.clientY,
-              };
-            }
-          }
-
-          // Track touch state
-          let isDragging = false;
-
-          // Unified pointer down handler
-          function handlePointerDown(e) {
-            try {
-              // For touch events, let Rust handle everything
-              if (e.type === "touchstart") {
-                // Track that touch started on canvas
-                if (e.target === canvas || e.currentTarget === canvas) {
-                  touchStartedOnCanvas = true;
+                // Clear any existing timeout
+                if (errorTimeout) {
+                    clearTimeout(errorTimeout);
                 }
 
-                if (editor.handle_touch_start) {
-                  editor.handle_touch_start(e);
-                }
-              } else {
-                // For mouse events, pass through directly
-                canvas.focus();
-                editor.handle_mouse_down(e);
-              }
-            } catch (err) {
-              console.error("Pointer down error:", err);
+                // Auto-hide after duration (default 5 seconds)
+                errorTimeout = setTimeout(() => {
+                    hideError();
+                    errorTimeout = null;
+                }, duration);
             }
-          }
 
-          // Unified pointer move handler
-          function handlePointerMove(e) {
-            try {
-              if (e.type === "touchmove") {
-                // Let Rust handle touch move (scrolling and selection)
-                if (editor.handle_touch_move) {
-                  editor.handle_touch_move(e);
+            function hideError() {
+                const errorEl = document.getElementById("error");
+                errorEl.classList.add("hidden");
+
+                // Clear timeout if hiding manually
+                if (errorTimeout) {
+                    clearTimeout(errorTimeout);
+                    errorTimeout = null;
                 }
-              } else {
-                // For mouse events, pass through directly
-                editor.handle_mouse_move(e);
-              }
-            } catch (err) {
-              console.error("Pointer move error:", err);
             }
-          }
 
-          // Track if touch started on canvas
-          let touchStartedOnCanvas = false;
+            function updateStatus(message) {
+                document.getElementById("status-message").textContent = message;
+            }
 
-          // Unified pointer up handler
-          function handlePointerUp(e) {
-            try {
-              if (e.type === "touchend" || e.type === "touchcancel") {
-                // Show keyboard FIRST (must be synchronous in touch event)
-                // Mobile browsers block async focus() calls
-                if (isMobileDevice && mobileInput && touchStartedOnCanvas) {
-                  mobileInput.focus(); // Synchronous call - no setTimeout!
+            function resizeCanvas() {
+                const canvas = document.getElementById("editor-canvas");
+                const container = document.getElementById("canvas-container");
+                const dpr = window.devicePixelRatio || 1;
+
+                const width = Math.floor(container.clientWidth * dpr);
+                const height = Math.floor(container.clientHeight * dpr);
+
+                canvas.width = width;
+                canvas.height = height;
+                canvas.style.width = container.clientWidth + "px";
+                canvas.style.height = container.clientHeight + "px";
+
+                if (editor) {
+                    editor.set_size(width, height);
                 }
 
-                // Then let Rust handle touch end
-                if (editor.handle_touch_end) {
-                  editor.handle_touch_end(e);
-                }
-
-                // Reset touch flag
-                touchStartedOnCanvas = false;
-              } else {
-                // For mouse events, pass through directly
-                editor.handle_mouse_up(e);
-              }
-            } catch (err) {
-              console.error("Pointer up error:", err);
+                return { width, height };
             }
-          }
 
-          // Register both mouse and touch events
-          canvas.addEventListener("mousedown", handlePointerDown);
-          canvas.addEventListener("touchstart", handlePointerDown, {
-            passive: true,
-          });
+            function updateCursorPosition() {
+                try {
+                    const cursor = editor.get_cursor_position();
+                    const settingsJson = editor.get_settings_json();
+                    const settings = JSON.parse(settingsJson);
 
-          canvas.addEventListener("mousemove", handlePointerMove);
-          canvas.addEventListener("touchmove", handlePointerMove, {
-            passive: true,
-          });
+                    // Update word count
+                    const text = editor.get_text();
+                    const wordCount = countWords(text);
+                    const wordCountEl = document.getElementById("word-count");
+                    wordCountEl.textContent = `Words: ${wordCount}`;
+                    wordCountEl.classList.remove("hidden");
 
-          canvas.addEventListener("mouseup", handlePointerUp);
-          canvas.addEventListener("touchend", handlePointerUp, {
-            passive: true,
-          });
-
-          // Handle touch cancel (when interrupted by system UI)
-          canvas.addEventListener("touchcancel", handlePointerUp, {
-            passive: false,
-          });
-
-          // Also register on document for drag-release outside canvas
-          document.addEventListener("mouseup", (e) => {
-            if (editor) handlePointerUp(e);
-          });
-          document.addEventListener(
-            "touchend",
-            (e) => {
-              if (editor) handlePointerUp(e);
-            },
-            { passive: true },
-          );
-
-          // Handle wheel events for scrolling
-          canvas.addEventListener(
-            "wheel",
-            (e) => {
-              try {
-                if (editor && editor.handle_wheel) {
-                  editor.handle_wheel(e);
-                }
-              } catch (err) {
-                console.error("Wheel error:", err);
-              }
-            },
-            { passive: false },
-          );
-
-          // Handle paste events
-          canvas.addEventListener("paste", (e) => {
-            try {
-              e.preventDefault();
-              const text = e.clipboardData.getData("text");
-              if (text && editor) {
-                editor.insert_text(text);
-                updateStatus(
-                  "Pasted: " +
-                    text.substring(0, 20) +
-                    (text.length > 20 ? "..." : ""),
-                );
-              }
-            } catch (err) {
-              console.error("Paste error:", err);
-              showError("Paste failed: " + err.message);
-            }
-          });
-
-          // Make canvas focusable (but not on mobile to keep keyboard visible)
-          if (!isMobileDevice) {
-            canvas.setAttribute("tabindex", "0");
-            canvas.focus();
-          }
-
-          // Load Latin to Mongolian character mapping
-          async function loadLatinMapping() {
-            try {
-              // Add timestamp to prevent caching
-              const response = await fetch("config/latin.csv?v=" + Date.now());
-              const csvText = await response.text();
-              const lines = csvText.trim().split("\n");
-
-              // Skip header line
-              for (let i = 1; i < lines.length; i++) {
-                const line = lines[i];
-                if (line) {
-                  const parts = line.split(",");
-                  const key = parts[0]?.trim(); // Only trim the key
-                  const char = parts[1]; // Don't trim the character - it might be a format control
-
-                  // Handle comma mapping: if key is empty and we have a third part, key is comma
-                  if (key === "" && parts.length >= 3 && parts[2]) {
-                    latinToMongolianMap[","] = parts[2];
-                  } else if (key && char !== undefined && char !== "") {
-                    // Keep the exact case from CSV (a→ᠠ, A→ᠠ, n→ᠨ, N→ᠩ, etc.)
-                    latinToMongolianMap[key] = char;
-                  }
-                }
-              }
-            } catch (err) {
-              console.error("Failed to load latin.csv:", err);
-            }
-          }
-
-          // Load the mapping
-          await loadLatinMapping();
-
-          // Function to convert text based on input mode (unused, kept for compatibility)
-          function convertText(text, useMapping) {
-            if (!useMapping) return text;
-
-            let result = "";
-            for (let char of text) {
-              result += latinToMongolianMap[char] || char;
-            }
-            return result;
-          }
-
-          // iOS keyboard support
-          if (isMobileDevice) {
-            // Show keyboard on initial load
-            mobileInput.focus();
-
-            // Show keyboard when canvas gets focus
-            canvas.addEventListener("focus", () => {
-              mobileInput.focus();
-            });
-
-            // Capture input from hidden field
-            mobileInput.addEventListener("input", (e) => {
-              const text = e.target.value;
-              if (text && editor) {
-                // Convert character by character if input mode is active
-                if (isInputModeActive) {
-                  let convertedText = "";
-                  for (let char of text) {
-                    const convertedChar = latinToMongolianMap[char] || char;
-
-                    // Check if this is a format control character that should be buffered
-                    if (convertedChar === "\u202F") {
-                      // Buffer U+202F from '-' key, don't insert yet
-                      bufferedFormatControl = "\u202F";
-                      continue;
-                    } else if (convertedChar === "\u180E") {
-                      // Buffer U+180E from '_' key, don't insert yet
-                      bufferedFormatControl = "\u180E";
-                      continue;
-                    }
-
-                    // If there's a buffered format control, add it before the current character
-                    if (bufferedFormatControl) {
-                      convertedText += bufferedFormatControl + convertedChar;
-                      bufferedFormatControl = null;
+                    // In vertical mode, swap line and column
+                    if (settings.editor.orientation === "vertical") {
+                        document.getElementById("cursor-position").textContent =
+                            `Line ${cursor.column}, Col ${cursor.line}`;
                     } else {
-                      convertedText += convertedChar;
+                        document.getElementById("cursor-position").textContent =
+                            `Line ${cursor.line}, Col ${cursor.column}`;
                     }
-                  }
-                  if (convertedText) {
-                    editor.insert_text(convertedText);
-                  }
-                } else {
-                  editor.insert_text(text);
-                }
-                mobileInput.value = ""; // Clear for next input
-              }
-            });
+                    document
+                        .getElementById("cursor-position")
+                        .classList.remove("hidden");
 
-            // Handle backspace/delete and Enter
-            mobileInput.addEventListener("keydown", (e) => {
-              if (e.key === "Backspace" || e.key === "Enter") {
-                e.preventDefault();
-                editor.handle_key_down(e);
-              }
-            });
+                    // Update Unicode info for character before cursor
+                    const unicodeInfoEl =
+                        document.getElementById("unicode-info");
+                    const lines = text.split("\n");
+                    const lineIndex = cursor.line - 1; // 0-indexed line number
+                    const byteIndex = cursor.column - 1; // cursor.column might be byte-based
 
-            // Keep input focused when typing, but allow button clicks and color picker
-            let allowBlur = false;
-            let refocusTimer = null;
+                    if (
+                        lineIndex >= 0 &&
+                        lineIndex < lines.length &&
+                        byteIndex > 0
+                    ) {
+                        const line = lines[lineIndex];
+                        // Convert byte index to character index
+                        // cosmic_text may use byte indices, Mongolian chars are 3 bytes in UTF-8
+                        let charPos = 0;
+                        let bytePos = 0;
+                        const encoder = new TextEncoder();
+                        const chars = Array.from(line);
 
-            mobileInput.addEventListener("blur", () => {
-              if (!allowBlur) {
-                // Clear any existing timer
-                if (refocusTimer) {
-                  clearTimeout(refocusTimer);
-                }
+                        for (let i = 0; i < chars.length; i++) {
+                            const charBytes = encoder.encode(chars[i]).length;
+                            bytePos += charBytes;
+                            if (bytePos >= byteIndex) {
+                                charPos = i + 1; // 1-indexed position of character cursor is after
+                                break;
+                            }
+                        }
 
-                // Immediately try to refocus (for canvas touches)
-                const activeEl = document.activeElement;
-                const isColorPicker =
-                  activeEl &&
-                  (activeEl.id === "text-color" ||
-                    activeEl.id === "background-color" ||
-                    activeEl.type === "color");
-
-                const isModal =
-                  activeEl &&
-                  (activeEl.closest("#settings-modal") ||
-                    activeEl.closest("#save-modal"));
-
-                // Don't steal focus from color picker or modals
-                if (!isColorPicker && !isModal) {
-                  // Immediate refocus
-                  requestAnimationFrame(() => {
-                    mobileInput.focus();
-                  });
-
-                  // Backup delayed refocus in case immediate fails
-                  refocusTimer = setTimeout(() => {
-                    if (document.activeElement !== mobileInput && !allowBlur) {
-                      mobileInput.focus();
+                        // Get character before cursor position (charPos is 1-indexed)
+                        if (charPos > 0 && charPos <= chars.length) {
+                            const char = chars[charPos - 1]; // Convert to 0-indexed
+                            const charInfo = getMongolianCharInfo(char);
+                            if (charInfo) {
+                                unicodeInfoEl.textContent = `U+${charInfo.hex} ${charInfo.name}`;
+                                unicodeInfoEl.classList.remove("hidden");
+                            } else {
+                                unicodeInfoEl.classList.add("hidden");
+                            }
+                        } else {
+                            unicodeInfoEl.classList.add("hidden");
+                        }
+                    } else {
+                        unicodeInfoEl.classList.add("hidden");
                     }
-                    refocusTimer = null;
-                  }, 50);
+                } catch (e) {
+                    // Ignore if methods not available
                 }
-              }
-            });
+            }
 
-            // Allow blur temporarily when buttons are clicked
-            document.querySelectorAll("button").forEach((button) => {
-              button.addEventListener("touchstart", (e) => {
-                allowBlur = true;
-                setTimeout(() => {
-                  allowBlur = false;
-                }, 500);
-              });
-            });
-
-            // Allow blur when color pickers are clicked on mobile
-            document
-              .querySelectorAll('input[type="color"]')
-              .forEach((colorInput) => {
-                colorInput.addEventListener("touchstart", (e) => {
-                  allowBlur = true;
-                  // Keep allowBlur true longer for color picker
-                  // since the color picker dialog may take time to open
-                  setTimeout(() => {
-                    allowBlur = false;
-                  }, 1000);
-                });
-              });
-          }
-
-          // Button handlers (with touch support)
-          function setupButton(id, handler) {
-            const button = document.getElementById(id);
-            button.addEventListener("click", handler);
-            button.addEventListener("touchend", (e) => {
-              e.preventDefault();
-              handler(e);
-            });
-          }
-
-          // Logo click handler - load version.txt
-          setupButton("logo-btn", async () => {
-            try {
-              const response = await fetch(
-                "config/version.txt?v=" + Date.now(),
-              );
-              const versionText = await response.text();
-              if (editor) {
-                editor.set_text(versionText);
-                updateStatus("Loaded version information");
-                // Focus canvas after loading
-                if (isMobileDevice) {
-                  mobileInput.focus();
-                } else {
-                  canvas.focus();
+            function countWords(text) {
+                if (!text || text.trim().length === 0) {
+                    return 0;
                 }
-              }
-            } catch (err) {
-              console.error("Failed to load version.txt:", err);
-              showError("Failed to load version information");
-            }
-          });
 
-          setupButton("clear-btn", () => {
-            if (editor) {
-              editor.set_text("");
-              updateStatus("Text cleared");
-              // Focus canvas after action
-              if (isMobileDevice) {
-                mobileInput.focus();
-              } else {
-                canvas.focus();
-              }
-            }
-          });
+                // Remove format control characters (U+180B-U+180F, U+202F)
+                // These should not be counted as spaces or affect word boundaries
+                const cleanText = text.replace(/[\u180B-\u180F\u202F]/g, "");
 
-          setupButton("vertical-btn", () => {
-            if (editor) {
-              editor.toggle_vertical();
-              updateStatus("Toggled vertical mode");
-              // Focus canvas after action
-              if (isMobileDevice) {
-                mobileInput.focus();
-              } else {
-                canvas.focus();
-              }
-            }
-          });
-
-          // Keyboard button - toggle input mode
-          const keyboardBtn = document.getElementById("keyboard-btn");
-
-          setupButton("keyboard-btn", () => {
-            isInputModeActive = !isInputModeActive;
-
-            if (isInputModeActive) {
-              // Active mode - add active class
-              keyboardBtn.classList.add("active");
-              updateStatus("Input mode: ON");
-            } else {
-              // Inactive mode - remove active class
-              keyboardBtn.classList.remove("active");
-              updateStatus("Input mode: OFF");
+                // Split by whitespace and filter out empty strings
+                const words = cleanText
+                    .trim()
+                    .split(/\s+/)
+                    .filter((word) => word.length > 0);
+                return words.length;
             }
 
-            // Focus canvas after action
-            if (isMobileDevice) {
-              mobileInput.focus();
-            } else {
-              canvas.focus();
+            function animate(timestamp) {
+                if (editor) {
+                    try {
+                        editor.render(timestamp);
+                        updateCursorPosition();
+                    } catch (e) {
+                        console.error("Render error:", e);
+                        showError("Render failed: " + e.message);
+                    }
+                }
+                animationId = requestAnimationFrame(animate);
             }
-          });
 
-          // Handle window resize
-          let resizeTimeout;
-          window.addEventListener("resize", () => {
-            clearTimeout(resizeTimeout);
-            resizeTimeout = setTimeout(() => {
-              resizeCanvas();
-              updateStatus("Canvas resized");
-            }, 250);
-          });
+            // Settings Modal Management
+            class SettingsModal {
+                constructor(editor) {
+                    this.editor = editor;
+                    this.modal = document.getElementById("settings-modal");
+                    this.initElements();
+                    this.attachEventListeners();
+                }
 
-          // Handle iOS viewport changes (keyboard, rotation)
-          if (window.visualViewport) {
-            window.visualViewport.addEventListener("resize", resizeCanvas);
-            window.visualViewport.addEventListener("scroll", resizeCanvas);
-          }
-        } catch (e) {
-          console.error("Initialization error:", e);
-          showError("Failed to initialize: " + e.message);
+                initElements() {
+                    this.elements = {
+                        fontFamily: document.getElementById("font-family"),
+                        fontSize: document.getElementById("font-size"),
+                        fontSizeValue:
+                            document.getElementById("font-size-value"),
+                        lineHeight: document.getElementById("line-height"),
+                        lineHeightValue:
+                            document.getElementById("line-height-value"),
+                        fontPreview: document.getElementById("font-preview"),
+                        textColor: document.getElementById("text-color"),
+                        textColorHex: document.getElementById("text-color-hex"),
+                        backgroundColor:
+                            document.getElementById("background-color"),
+                        backgroundColorHex: document.getElementById(
+                            "background-color-hex",
+                        ),
+                    };
 
-          // Show helpful message for mobile
-          if (/timeout/i.test(e.message)) {
-            showError(
-              "Font loading timed out. Please check your network connection and try refreshing.",
-            );
-          }
+                    this.buttons = {
+                        open: document.getElementById("settings-btn"),
+                        close: document.getElementById("settings-close"),
+                        save: document.getElementById("settings-save"),
+                        cancel: document.getElementById("settings-cancel"),
+                        reset: document.getElementById("settings-reset"),
+                    };
+                }
 
-          document.getElementById("loading").classList.add("hidden");
-        }
-      }
+                attachEventListeners() {
+                    // Add both click and touch support for all modal buttons
+                    const addHandler = (button, handler) => {
+                        button.addEventListener("click", handler);
+                        button.addEventListener("touchend", (e) => {
+                            e.preventDefault();
+                            handler();
+                        });
+                    };
 
-      main();
-    </script>
-    <!-- Google tag (gtag.js) -->
-    <script
-      async
-      src="https://www.googletagmanager.com/gtag/js?id=G-BWDPSF6BMT"
-    ></script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag() {
-        dataLayer.push(arguments);
-      }
-      gtag("js", new Date());
+                    addHandler(this.buttons.open, () => this.open());
+                    addHandler(this.buttons.close, () => this.close());
+                    addHandler(this.buttons.cancel, () => this.close());
+                    addHandler(this.buttons.save, () => this.save());
+                    addHandler(this.buttons.reset, () => this.reset());
 
-      gtag("config", "G-BWDPSF6BMT");
-    </script>
-  </body>
+                    // Live preview for font size
+                    this.elements.fontSize.addEventListener("input", (e) => {
+                        const size = e.target.value;
+                        this.elements.fontSizeValue.textContent = `${size}px`;
+                        this.elements.fontPreview.style.fontSize = `${size}px`;
+                    });
+
+                    // Live preview for line height
+                    this.elements.lineHeight.addEventListener("input", (e) => {
+                        const height = e.target.value;
+                        this.elements.lineHeightValue.textContent = `${height}px`;
+                        this.elements.fontPreview.style.lineHeight = `${height}px`;
+                    });
+
+                    // Live preview for font family
+                    this.elements.fontFamily.addEventListener("change", (e) => {
+                        this.elements.fontPreview.style.fontFamily =
+                            e.target.value;
+                    });
+
+                    // Color picker sync
+                    this.elements.textColor.addEventListener("input", (e) => {
+                        this.elements.textColorHex.value = e.target.value;
+                        this.elements.fontPreview.style.color = e.target.value;
+                    });
+
+                    this.elements.textColorHex.addEventListener(
+                        "input",
+                        (e) => {
+                            if (/^#[0-9A-F]{6}$/i.test(e.target.value)) {
+                                this.elements.textColor.value = e.target.value;
+                                this.elements.fontPreview.style.color =
+                                    e.target.value;
+                            }
+                        },
+                    );
+
+                    this.elements.backgroundColor.addEventListener(
+                        "input",
+                        (e) => {
+                            this.elements.backgroundColorHex.value =
+                                e.target.value;
+                            this.elements.fontPreview.style.backgroundColor =
+                                e.target.value;
+                        },
+                    );
+
+                    this.elements.backgroundColorHex.addEventListener(
+                        "input",
+                        (e) => {
+                            if (/^#[0-9A-F]{6}$/i.test(e.target.value)) {
+                                this.elements.backgroundColor.value =
+                                    e.target.value;
+                                this.elements.fontPreview.style.backgroundColor =
+                                    e.target.value;
+                            }
+                        },
+                    );
+
+                    // Close on outside click
+                    this.modal.addEventListener("click", (e) => {
+                        if (e.target === this.modal) this.close();
+                    });
+                }
+
+                open() {
+                    this.loadSettings();
+                    this.modal.classList.remove("hidden");
+                    this.modal.classList.add("flex");
+                }
+
+                close() {
+                    this.modal.classList.add("hidden");
+                    this.modal.classList.remove("flex");
+
+                    // Focus canvas after closing modal
+                    const canvas = document.getElementById("editor-canvas");
+                    const mobileInput = document.getElementById("mobile-input");
+                    const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(
+                        navigator.userAgent,
+                    );
+
+                    if (isMobileDevice) {
+                        mobileInput.focus();
+                    } else {
+                        canvas.focus();
+                    }
+                }
+
+                loadSettings() {
+                    try {
+                        const settings = JSON.parse(
+                            this.editor.get_settings_json(),
+                        );
+
+                        this.elements.fontFamily.value =
+                            settings.fonts.font_family;
+                        this.elements.fontSize.value = settings.fonts.font_size;
+                        this.elements.fontSizeValue.textContent = `${settings.fonts.font_size}px`;
+                        this.elements.lineHeight.value =
+                            settings.fonts.line_height;
+                        this.elements.lineHeightValue.textContent = `${settings.fonts.line_height}px`;
+
+                        this.elements.fontPreview.style.fontFamily =
+                            settings.fonts.font_family;
+                        this.elements.fontPreview.style.fontSize = `${settings.fonts.font_size}px`;
+                        this.elements.fontPreview.style.lineHeight = `${settings.fonts.line_height}px`;
+
+                        this.elements.textColor.value =
+                            settings.appearance.text_color;
+                        this.elements.textColorHex.value =
+                            settings.appearance.text_color;
+                        this.elements.backgroundColor.value =
+                            settings.appearance.background_color;
+                        this.elements.backgroundColorHex.value =
+                            settings.appearance.background_color;
+                        this.elements.fontPreview.style.color =
+                            settings.appearance.text_color;
+                        this.elements.fontPreview.style.backgroundColor =
+                            settings.appearance.background_color;
+                    } catch (e) {
+                        console.error("Failed to load settings:", e);
+                    }
+                }
+
+                save() {
+                    try {
+                        const settings = {
+                            appearance: {
+                                text_color: this.elements.textColor.value,
+                                background_color:
+                                    this.elements.backgroundColor.value,
+                                cursor_color: getCursorColor(
+                                    this.elements.backgroundColor.value,
+                                ),
+                                selection_color: "#5078c880",
+                                gutter_background: "#252526",
+                                line_number_color: "#858585",
+                            },
+                            fonts: {
+                                font_family: this.elements.fontFamily.value,
+                                font_size: parseFloat(
+                                    this.elements.fontSize.value,
+                                ),
+                                line_height: parseFloat(
+                                    this.elements.lineHeight.value,
+                                ),
+                            },
+                            editor: {
+                                orientation: "vertical",
+                            },
+                        };
+
+                        this.editor.set_settings_json(JSON.stringify(settings));
+                        localStorage.setItem(
+                            "uns-editor-settings",
+                            JSON.stringify(settings),
+                        );
+
+                        this.close();
+                        updateStatus("Settings saved successfully");
+                    } catch (e) {
+                        console.error("Failed to save settings:", e);
+                        alert("Failed to save settings: " + e.message);
+                    }
+                }
+
+                reset() {
+                    if (confirm("Reset all settings to defaults?")) {
+                        localStorage.removeItem("uns-editor-settings");
+                        const defaults = {
+                            appearance: {
+                                text_color: "#c8c8c8",
+                                background_color: "#2b2b2b",
+                                cursor_color: getCursorColor("#2b2b2b"),
+                                selection_color: "#5078c880",
+                                gutter_background: "#252526",
+                                line_number_color: "#858585",
+                            },
+                            fonts: {
+                                font_family: "Noto Sans Mongolian",
+                                font_size: 24,
+                                line_height: 30,
+                            },
+                            editor: {
+                                orientation: "vertical",
+                            },
+                        };
+                        this.editor.set_settings_json(JSON.stringify(defaults));
+                        this.loadSettings();
+                        updateStatus("Settings reset to defaults");
+                    }
+                }
+            }
+
+            // File Operations Management
+            class FileManager {
+                constructor(editor) {
+                    this.editor = editor;
+                    this.saveModal = document.getElementById("save-modal");
+                    this.fileInput = document.getElementById("file-input");
+                    this.initButtons();
+                    this.attachEventListeners();
+                }
+
+                initButtons() {
+                    this.buttons = {
+                        save: document.getElementById("save-btn"),
+                        open: document.getElementById("open-btn"),
+                        saveModalClose:
+                            document.getElementById("save-modal-close"),
+                        saveModalCancel:
+                            document.getElementById("save-modal-cancel"),
+                        saveTxt: document.getElementById("save-txt-btn"),
+                        saveUns: document.getElementById("save-uns-btn"),
+                    };
+                    this.filenameInput =
+                        document.getElementById("filename-input");
+                }
+
+                attachEventListeners() {
+                    // Add both click and touch support (mobile + desktop)
+                    const addHandler = (button, handler) => {
+                        if (!button) return;
+                        button.addEventListener("click", handler);
+                        button.addEventListener("touchend", (e) => {
+                            e.preventDefault();
+                            handler();
+                        });
+                    };
+
+                    addHandler(this.buttons.save, () => this.openSaveModal());
+                    addHandler(this.buttons.open, () => this.openFile());
+                    addHandler(this.buttons.saveModalClose, () =>
+                        this.closeSaveModal(),
+                    );
+                    addHandler(this.buttons.saveModalCancel, () =>
+                        this.closeSaveModal(),
+                    );
+                    addHandler(this.buttons.saveTxt, () => this.saveAsTxt());
+                    addHandler(this.buttons.saveUns, () => this.saveAsUns());
+
+                    // File input change handler
+                    this.fileInput.addEventListener("change", (e) =>
+                        this.handleFileSelect(e),
+                    );
+
+                    // Close modal on outside click
+                    this.saveModal.addEventListener("click", (e) => {
+                        if (e.target === this.saveModal) this.closeSaveModal();
+                    });
+
+                    // Enter key in filename input saves as UNS (default format)
+                    this.filenameInput.addEventListener("keydown", (e) => {
+                        if (e.key === "Enter") {
+                            e.preventDefault();
+                            this.saveAsUns();
+                        }
+                    });
+
+                    // Drag and drop support
+                    this.setupDragAndDrop();
+                }
+
+                setupDragAndDrop() {
+                    const dropZone =
+                        document.getElementById("canvas-container");
+                    const canvas = document.getElementById("editor-canvas");
+
+                    // Prevent default drag behaviors on the entire document
+                    ["dragenter", "dragover", "dragleave", "drop"].forEach(
+                        (eventName) => {
+                            document.body.addEventListener(
+                                eventName,
+                                (e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                },
+                                false,
+                            );
+                        },
+                    );
+
+                    // Highlight drop zone when dragging over
+                    ["dragenter", "dragover"].forEach((eventName) => {
+                        dropZone.addEventListener(
+                            eventName,
+                            (e) => {
+                                e.preventDefault();
+                                dropZone.classList.add(
+                                    "bg-blue-900",
+                                    "bg-opacity-20",
+                                );
+                                canvas.style.opacity = "0.5";
+                            },
+                            false,
+                        );
+                    });
+
+                    ["dragleave", "drop"].forEach((eventName) => {
+                        dropZone.addEventListener(
+                            eventName,
+                            (e) => {
+                                e.preventDefault();
+                                dropZone.classList.remove(
+                                    "bg-blue-900",
+                                    "bg-opacity-20",
+                                );
+                                canvas.style.opacity = "1";
+                            },
+                            false,
+                        );
+                    });
+
+                    // Handle dropped files
+                    dropZone.addEventListener(
+                        "drop",
+                        (e) => {
+                            e.preventDefault();
+                            const files = e.dataTransfer.files;
+
+                            if (files.length > 0) {
+                                this.handleDroppedFile(files[0]);
+                            }
+                        },
+                        false,
+                    );
+                }
+
+                async handleDroppedFile(file) {
+                    try {
+                        // Enforce file size limit (10MB)
+                        if (file.size > 10 * 1024 * 1024) {
+                            showError(
+                                "File is too large (>10MB). Please select a smaller file.",
+                            );
+                            return;
+                        }
+
+                        const extension = file.name
+                            .split(".")
+                            .pop()
+                            .toLowerCase();
+
+                        if (extension !== "txt" && extension !== "uns") {
+                            showError(
+                                "Unsupported file type. Please drop .txt or .uns files only.",
+                            );
+                            return;
+                        }
+
+                        const text = await this.readFileAsText(file);
+
+                        if (extension === "txt") {
+                            this.loadTxtFile(text, file.name);
+                        } else if (extension === "uns") {
+                            this.loadUnsFile(text, file.name);
+                        }
+                    } catch (e) {
+                        console.error("File drop error:", e);
+                        showError("Failed to open dropped file: " + e.message);
+                    }
+                }
+
+                openSaveModal() {
+                    // Generate default filename with timestamp
+                    const date = new Date();
+                    const timestamp = date
+                        .toISOString()
+                        .replace(/:/g, "-")
+                        .replace(/\..+/, "")
+                        .replace("T", "_");
+                    this.filenameInput.value = `uns-document_${timestamp}`;
+
+                    this.saveModal.classList.remove("hidden");
+                    this.saveModal.classList.add("flex");
+
+                    // Focus and select the filename input for easy editing
+                    setTimeout(() => {
+                        this.filenameInput.focus();
+                        this.filenameInput.select();
+                    }, 100);
+                }
+
+                closeSaveModal() {
+                    this.saveModal.classList.add("hidden");
+                    this.saveModal.classList.remove("flex");
+
+                    // Focus canvas after closing modal
+                    const canvas = document.getElementById("editor-canvas");
+                    const mobileInput = document.getElementById("mobile-input");
+                    const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(
+                        navigator.userAgent,
+                    );
+
+                    if (isMobileDevice) {
+                        mobileInput.focus();
+                    } else {
+                        canvas.focus();
+                    }
+                }
+
+                saveAsTxt() {
+                    try {
+                        const text = this.editor.get_text();
+                        const blob = new Blob([text], {
+                            type: "text/plain;charset=utf-8",
+                        });
+                        const filename = this.generateFilename("txt");
+                        this.downloadBlob(blob, filename);
+                        this.closeSaveModal();
+                        updateStatus(`Saved as ${filename}`);
+                    } catch (e) {
+                        console.error("Save TXT error:", e);
+                        showError("Failed to save TXT: " + e.message);
+                    }
+                }
+
+                saveAsUns() {
+                    try {
+                        const text = this.editor.get_text();
+                        const settingsJson = this.editor.get_settings_json();
+                        const settings = JSON.parse(settingsJson);
+                        const cursor = this.editor.get_cursor_position();
+
+                        const now = new Date().toISOString();
+
+                        const unsDocument = {
+                            version: "1.0.0",
+                            metadata: {
+                                created: now,
+                                modified: now,
+                                app: "UNS Editor",
+                            },
+                            content: {
+                                text: text,
+                                cursor: {
+                                    line: cursor.line,
+                                    column: cursor.column,
+                                },
+                            },
+                            settings: settings,
+                        };
+
+                        const json = JSON.stringify(unsDocument, null, 2);
+                        const blob = new Blob([json], {
+                            type: "application/json;charset=utf-8",
+                        });
+                        const filename = this.generateFilename("uns");
+                        this.downloadBlob(blob, filename);
+                        this.closeSaveModal();
+                        updateStatus(`Saved as ${filename}`);
+                    } catch (e) {
+                        console.error("Save UNS error:", e);
+                        showError("Failed to save UNS: " + e.message);
+                    }
+                }
+
+                downloadBlob(blob, filename) {
+                    // Create temporary download link
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = filename;
+                    a.style.display = "none";
+                    document.body.appendChild(a);
+                    a.click();
+
+                    // Cleanup
+                    setTimeout(() => {
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                    }, 100);
+                }
+
+                generateFilename(extension) {
+                    // Get filename from input, trim whitespace
+                    let filename = this.filenameInput.value.trim();
+
+                    // If empty, use default
+                    if (!filename) {
+                        const date = new Date();
+                        const timestamp = date
+                            .toISOString()
+                            .replace(/:/g, "-")
+                            .replace(/\..+/, "")
+                            .replace("T", "_");
+                        filename = `uns-document_${timestamp}`;
+                    }
+
+                    // Remove any existing extension
+                    filename = filename.replace(/\.(txt|uns)$/i, "");
+
+                    // Sanitize filename (remove invalid characters)
+                    filename = filename.replace(/[<>:"/\\|?*]/g, "_");
+
+                    return `${filename}.${extension}`;
+                }
+
+                openFile() {
+                    // Trigger file input click (opens native file picker)
+                    this.fileInput.click();
+                }
+
+                async handleFileSelect(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    try {
+                        // Enforce file size limit (10MB)
+                        if (file.size > 10 * 1024 * 1024) {
+                            showError(
+                                "File is too large (>10MB). Please select a smaller file.",
+                            );
+                            return;
+                        }
+
+                        const text = await this.readFileAsText(file);
+                        const extension = file.name
+                            .split(".")
+                            .pop()
+                            .toLowerCase();
+
+                        if (extension === "txt") {
+                            this.loadTxtFile(text, file.name);
+                        } else if (extension === "uns") {
+                            this.loadUnsFile(text, file.name);
+                        } else {
+                            showError(
+                                "Unsupported file type. Please select .txt or .uns files.",
+                            );
+                        }
+                    } catch (e) {
+                        console.error("File open error:", e);
+                        showError("Failed to open file: " + e.message);
+                    } finally {
+                        // Reset file input so same file can be opened again
+                        this.fileInput.value = "";
+                    }
+                }
+
+                readFileAsText(file) {
+                    return new Promise((resolve, reject) => {
+                        const reader = new FileReader();
+                        reader.onload = (e) => resolve(e.target.result);
+                        reader.onerror = (e) =>
+                            reject(new Error("Failed to read file"));
+                        reader.readAsText(file);
+                    });
+                }
+
+                loadTxtFile(text, filename) {
+                    // Simple: just set the text, keep current settings
+                    this.editor.set_text(text);
+                    updateStatus(`Opened ${filename} (plain text)`);
+                }
+
+                loadUnsFile(text, filename) {
+                    try {
+                        const unsDocument = JSON.parse(text);
+
+                        // Version check
+                        const version = unsDocument.version || "1.0.0";
+                        const [major] = version.split(".").map(Number);
+
+                        if (major !== 1) {
+                            showError(
+                                `Unsupported UNS version: ${version}. This editor supports version 1.x`,
+                            );
+                            return;
+                        }
+
+                        // Validate required fields
+                        if (
+                            !unsDocument.content ||
+                            typeof unsDocument.content.text !== "string"
+                        ) {
+                            throw new Error(
+                                "Invalid UNS file: missing content.text",
+                            );
+                        }
+
+                        // Load text content
+                        this.editor.set_text(unsDocument.content.text);
+
+                        // Load settings if present
+                        if (unsDocument.settings) {
+                            try {
+                                const settingsJson = JSON.stringify(
+                                    unsDocument.settings,
+                                );
+                                this.editor.set_settings_json(settingsJson);
+
+                                // Persist to localStorage
+                                localStorage.setItem(
+                                    "uns-editor-settings",
+                                    settingsJson,
+                                );
+                            } catch (e) {
+                                console.error("Failed to apply settings:", e);
+                                showError(
+                                    "Settings could not be loaded, using current settings",
+                                );
+                            }
+                        }
+
+                        updateStatus(`Opened ${filename} (with settings)`);
+
+                        // Log metadata for debugging
+                        if (unsDocument.metadata) {
+                            const modified = unsDocument.metadata.modified
+                                ? new Date(
+                                      unsDocument.metadata.modified,
+                                  ).toLocaleString()
+                                : "unknown";
+                            console.log(`Document last modified: ${modified}`);
+                        }
+                    } catch (e) {
+                        if (e instanceof SyntaxError) {
+                            showError("Invalid UNS file: Not valid JSON");
+                        } else {
+                            showError("Failed to load UNS file: " + e.message);
+                        }
+                        console.error("UNS load error:", e);
+                    }
+                }
+            }
+
+            async function main() {
+                try {
+                    // Detect mobile device first (needed throughout initialization)
+                    const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(
+                        navigator.userAgent,
+                    );
+
+                    // Input mode state - starts active (true = convert Latin to Mongolian)
+                    let isInputModeActive = true;
+                    let latinToMongolianMap = {};
+                    let bufferedFormatControl = null; // Buffer for U+202F or U+180E
+
+                    // Initialize WASM with cache-busting parameter
+                    await init({ module_or_path: './pkg/uns_editor_bg.wasm?v=3' });
+
+                    // Setup canvas
+                    const { width, height } = resizeCanvas();
+
+                    // Create editor with timeout (async - waits for font to load)
+                    updateStatus("Loading fonts...");
+
+                    const editorPromise = WasmEditor.new("editor-canvas");
+                    const timeoutPromise = new Promise((_, reject) =>
+                        setTimeout(
+                            () => reject(new Error("Font loading timeout")),
+                            30000,
+                        ),
+                    );
+
+                    editor = await Promise.race([
+                        editorPromise,
+                        timeoutPromise,
+                    ]);
+                    editor.set_size(width, height);
+
+                    // Load saved settings
+                    const savedSettings = localStorage.getItem(
+                        "uns-editor-settings",
+                    );
+                    if (savedSettings) {
+                        try {
+                            editor.set_settings_json(savedSettings);
+                            updateStatus("Settings loaded from storage");
+                        } catch (e) {
+                            console.error("Failed to load saved settings:", e);
+                        }
+                    }
+
+                    // Initialize settings modal
+                    const settingsModal = new SettingsModal(editor);
+
+                    // Initialize file manager
+                    const fileManager = new FileManager(editor);
+
+                    // Keyboard shortcuts for save/open
+                    document.addEventListener("keydown", (e) => {
+                        // Ctrl+S or Cmd+S - Open save modal
+                        if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+                            e.preventDefault();
+                            fileManager.openSaveModal();
+                        }
+
+                        // Ctrl+O or Cmd+O - Open file picker
+                        if ((e.ctrlKey || e.metaKey) && e.key === "o") {
+                            e.preventDefault();
+                            fileManager.openFile();
+                        }
+
+                        // Ctrl+Alt+I - Toggle input mode
+                        if (
+                            (e.ctrlKey || e.metaKey) &&
+                            e.altKey &&
+                            (e.key === "i" || e.key === "I")
+                        ) {
+                            e.preventDefault();
+                            const keyboardBtn =
+                                document.getElementById("keyboard-btn");
+                            if (keyboardBtn) {
+                                keyboardBtn.click();
+                            }
+                        }
+
+                        // Escape - Close save modal
+                        if (
+                            e.key === "Escape" &&
+                            !fileManager.saveModal.classList.contains("hidden")
+                        ) {
+                            fileManager.closeSaveModal();
+                        }
+                    });
+
+                    // Hide loading
+                    document.getElementById("loading").classList.add("hidden");
+                    hideError();
+                    updateStatus(
+                        "Ready | Click to edit | Ctrl+Alt+I to toggle input mode",
+                    );
+
+                    // Start animation loop
+                    animate(0);
+
+                    // Event listeners
+                    const canvas = document.getElementById("editor-canvas");
+                    const mobileInput = document.getElementById("mobile-input");
+
+                    canvas.addEventListener("keydown", (e) => {
+                        try {
+                            // Handle Ctrl+C (Copy) - intercept before Rust handles it
+                            if ((e.ctrlKey || e.metaKey) && e.key === "c") {
+                                e.preventDefault();
+                                if (editor) {
+                                    const selectedText = editor.get_selected_text();
+                                    if (selectedText) {
+                                        navigator.clipboard.writeText(selectedText).then(() => {
+                                            updateStatus("Copied: " + selectedText.substring(0, 20) + (selectedText.length > 20 ? "..." : ""));
+                                        }).catch(err => {
+                                            console.error("Copy failed:", err);
+                                            showError("Copy failed: " + err.message);
+                                        });
+                                    }
+                                }
+                                return;
+                            }
+
+                            // Handle Ctrl+X (Cut) - intercept before Rust handles it
+                            if ((e.ctrlKey || e.metaKey) && e.key === "x") {
+                                e.preventDefault();
+                                if (editor) {
+                                    const selectedText = editor.get_selected_text();
+                                    if (selectedText) {
+                                        navigator.clipboard.writeText(selectedText).then(() => {
+                                            editor.delete_selection();
+                                            updateStatus("Cut: " + selectedText.substring(0, 20) + (selectedText.length > 20 ? "..." : ""));
+                                        }).catch(err => {
+                                            console.error("Cut failed:", err);
+                                            showError("Cut failed: " + err.message);
+                                        });
+                                    }
+                                }
+                                return;
+                            }
+
+                            // Intercept character input for Latin to Mongolian conversion
+                            if (
+                                isInputModeActive &&
+                                e.key.length === 1 &&
+                                !e.ctrlKey &&
+                                !e.metaKey &&
+                                !e.altKey
+                            ) {
+                                const convertedChar =
+                                    latinToMongolianMap[e.key];
+                                if (convertedChar) {
+                                    e.preventDefault();
+
+                                    // Check if this is a format control character that should be buffered
+                                    if (convertedChar === '\u202F') {
+                                        // Buffer U+202F from '-' key, don't insert yet
+                                        bufferedFormatControl = '\u202F';
+                                        return;
+                                    } else if (convertedChar === '\u180E') {
+                                        // Buffer U+180E from '_' key, don't insert yet
+                                        bufferedFormatControl = '\u180E';
+                                        return;
+                                    }
+
+                                    // If there's a buffered format control, insert it before the current character
+                                    if (bufferedFormatControl) {
+                                        editor.insert_text(bufferedFormatControl + convertedChar);
+                                        bufferedFormatControl = null;
+                                    } else {
+                                        editor.insert_text(convertedChar);
+                                    }
+                                    return;
+                                }
+                            }
+
+                            // For non-mapped keys, clear the buffer
+                            bufferedFormatControl = null;
+
+                            editor.handle_key_down(e);
+                        } catch (err) {
+                            console.error("Key down error:", err);
+                        }
+                    });
+
+                    canvas.addEventListener("keyup", (e) => {
+                        try {
+                            editor.handle_key_up(e);
+                        } catch (err) {
+                            console.error("Key up error:", err);
+                        }
+                    });
+
+                    // Helper to extract coordinates from touch or mouse event
+                    function getEventCoordinates(e) {
+                        if (e.touches && e.touches.length > 0) {
+                            // Touch event
+                            return {
+                                clientX: e.touches[0].clientX,
+                                clientY: e.touches[0].clientY,
+                            };
+                        } else if (
+                            e.changedTouches &&
+                            e.changedTouches.length > 0
+                        ) {
+                            // Touch end event
+                            return {
+                                clientX: e.changedTouches[0].clientX,
+                                clientY: e.changedTouches[0].clientY,
+                            };
+                        } else {
+                            // Mouse event
+                            return {
+                                clientX: e.clientX,
+                                clientY: e.clientY,
+                            };
+                        }
+                    }
+
+                    // Track touch state
+                    let isDragging = false;
+
+                    // Unified pointer down handler
+                    function handlePointerDown(e) {
+                        try {
+                            // For touch events, let Rust handle everything
+                            if (e.type === "touchstart") {
+                                // Track that touch started on canvas
+                                if (
+                                    e.target === canvas ||
+                                    e.currentTarget === canvas
+                                ) {
+                                    touchStartedOnCanvas = true;
+                                }
+
+                                if (editor.handle_touch_start) {
+                                    editor.handle_touch_start(e);
+                                }
+                            } else {
+                                // For mouse events, pass through directly
+                                canvas.focus();
+                                editor.handle_mouse_down(e);
+                            }
+                        } catch (err) {
+                            console.error("Pointer down error:", err);
+                        }
+                    }
+
+                    // Unified pointer move handler
+                    function handlePointerMove(e) {
+                        try {
+                            if (e.type === "touchmove") {
+                                // Let Rust handle touch move (scrolling and selection)
+                                if (editor.handle_touch_move) {
+                                    editor.handle_touch_move(e);
+                                }
+                            } else {
+                                // For mouse events, pass through directly
+                                editor.handle_mouse_move(e);
+                            }
+                        } catch (err) {
+                            console.error("Pointer move error:", err);
+                        }
+                    }
+
+                    // Track if touch started on canvas
+                    let touchStartedOnCanvas = false;
+
+                    // Unified pointer up handler
+                    function handlePointerUp(e) {
+                        try {
+                            if (
+                                e.type === "touchend" ||
+                                e.type === "touchcancel"
+                            ) {
+                                // Show keyboard FIRST (must be synchronous in touch event)
+                                // Mobile browsers block async focus() calls
+                                if (
+                                    isMobileDevice &&
+                                    mobileInput &&
+                                    touchStartedOnCanvas
+                                ) {
+                                    mobileInput.focus(); // Synchronous call - no setTimeout!
+                                }
+
+                                // Then let Rust handle touch end
+                                if (editor.handle_touch_end) {
+                                    editor.handle_touch_end(e);
+                                }
+
+                                // Reset touch flag
+                                touchStartedOnCanvas = false;
+                            } else {
+                                // For mouse events, pass through directly
+                                editor.handle_mouse_up(e);
+                            }
+                        } catch (err) {
+                            console.error("Pointer up error:", err);
+                        }
+                    }
+
+                    // Register both mouse and touch events
+                    canvas.addEventListener("mousedown", handlePointerDown);
+                    canvas.addEventListener("touchstart", handlePointerDown, {
+                        passive: true,
+                    });
+
+                    canvas.addEventListener("mousemove", handlePointerMove);
+                    canvas.addEventListener("touchmove", handlePointerMove, {
+                        passive: true,
+                    });
+
+                    canvas.addEventListener("mouseup", handlePointerUp);
+                    canvas.addEventListener("touchend", handlePointerUp, {
+                        passive: true,
+                    });
+
+                    // Handle touch cancel (when interrupted by system UI)
+                    canvas.addEventListener("touchcancel", handlePointerUp, {
+                        passive: false,
+                    });
+
+                    // Also register on document for drag-release outside canvas
+                    document.addEventListener("mouseup", (e) => {
+                        if (editor) handlePointerUp(e);
+                    });
+                    document.addEventListener(
+                        "touchend",
+                        (e) => {
+                            if (editor) handlePointerUp(e);
+                        },
+                        { passive: true },
+                    );
+
+                    // Handle wheel events for scrolling
+                    canvas.addEventListener(
+                        "wheel",
+                        (e) => {
+                            try {
+                                if (editor && editor.handle_wheel) {
+                                    editor.handle_wheel(e);
+                                }
+                            } catch (err) {
+                                console.error("Wheel error:", err);
+                            }
+                        },
+                        { passive: false },
+                    );
+
+                    // Handle paste events
+                    canvas.addEventListener("paste", (e) => {
+                        try {
+                            e.preventDefault();
+                            const text = e.clipboardData.getData("text");
+                            if (text && editor) {
+                                editor.insert_text(text);
+                                updateStatus(
+                                    "Pasted: " +
+                                        text.substring(0, 20) +
+                                        (text.length > 20 ? "..." : ""),
+                                );
+                            }
+                        } catch (err) {
+                            console.error("Paste error:", err);
+                            showError("Paste failed: " + err.message);
+                        }
+                    });
+
+                    // Make canvas focusable (but not on mobile to keep keyboard visible)
+                    if (!isMobileDevice) {
+                        canvas.setAttribute("tabindex", "0");
+                        canvas.focus();
+                    }
+
+                    // Load Latin to Mongolian character mapping
+                    async function loadLatinMapping() {
+                        try {
+                            // Add timestamp to prevent caching
+                            const response = await fetch(
+                                "config/latin.csv?v=" + Date.now(),
+                            );
+                            const csvText = await response.text();
+                            const lines = csvText.trim().split("\n");
+
+                            // Skip header line
+                            for (let i = 1; i < lines.length; i++) {
+                                const line = lines[i];
+                                if (line) {
+                                    const parts = line.split(",");
+                                    const key = parts[0]?.trim(); // Only trim the key
+                                    const char = parts[1]; // Don't trim the character - it might be a format control
+
+                                    // Handle comma mapping: if key is empty and we have a third part, key is comma
+                                    if (key === '' && parts.length >= 3 && parts[2]) {
+                                        latinToMongolianMap[','] = parts[2];
+                                    } else if (key && char !== undefined && char !== '') {
+                                        // Keep the exact case from CSV (a→ᠠ, A→ᠠ, n→ᠨ, N→ᠩ, etc.)
+                                        latinToMongolianMap[key] = char;
+                                    }
+                                }
+                            }
+                        } catch (err) {
+                            console.error("Failed to load latin.csv:", err);
+                        }
+                    }
+
+                    // Load the mapping
+                    await loadLatinMapping();
+
+                    // Function to convert text based on input mode (unused, kept for compatibility)
+                    function convertText(text, useMapping) {
+                        if (!useMapping) return text;
+
+                        let result = "";
+                        for (let char of text) {
+                            result += latinToMongolianMap[char] || char;
+                        }
+                        return result;
+                    }
+
+                    // iOS keyboard support
+                    if (isMobileDevice) {
+                        // Show keyboard on initial load
+                        mobileInput.focus();
+
+                        // Show keyboard when canvas gets focus
+                        canvas.addEventListener("focus", () => {
+                            mobileInput.focus();
+                        });
+
+                        // Capture input from hidden field
+                        mobileInput.addEventListener("input", (e) => {
+                            const text = e.target.value;
+                            if (text && editor) {
+                                // Convert character by character if input mode is active
+                                if (isInputModeActive) {
+                                    let convertedText = "";
+                                    for (let char of text) {
+                                        const convertedChar = latinToMongolianMap[char] || char;
+
+                                        // Check if this is a format control character that should be buffered
+                                        if (convertedChar === '\u202F') {
+                                            // Buffer U+202F from '-' key, don't insert yet
+                                            bufferedFormatControl = '\u202F';
+                                            continue;
+                                        } else if (convertedChar === '\u180E') {
+                                            // Buffer U+180E from '_' key, don't insert yet
+                                            bufferedFormatControl = '\u180E';
+                                            continue;
+                                        }
+
+                                        // If there's a buffered format control, add it before the current character
+                                        if (bufferedFormatControl) {
+                                            convertedText += bufferedFormatControl + convertedChar;
+                                            bufferedFormatControl = null;
+                                        } else {
+                                            convertedText += convertedChar;
+                                        }
+                                    }
+                                    if (convertedText) {
+                                        editor.insert_text(convertedText);
+                                    }
+                                } else {
+                                    editor.insert_text(text);
+                                }
+                                mobileInput.value = ""; // Clear for next input
+                            }
+                        });
+
+                        // Handle backspace/delete and Enter
+                        mobileInput.addEventListener("keydown", (e) => {
+                            if (e.key === "Backspace" || e.key === "Enter") {
+                                e.preventDefault();
+                                editor.handle_key_down(e);
+                            }
+                        });
+
+                        // Keep input focused when typing, but allow button clicks and color picker
+                        let allowBlur = false;
+                        let refocusTimer = null;
+
+                        mobileInput.addEventListener("blur", () => {
+                            if (!allowBlur) {
+                                // Clear any existing timer
+                                if (refocusTimer) {
+                                    clearTimeout(refocusTimer);
+                                }
+
+                                // Immediately try to refocus (for canvas touches)
+                                const activeEl = document.activeElement;
+                                const isColorPicker =
+                                    activeEl &&
+                                    (activeEl.id === "text-color" ||
+                                        activeEl.id === "background-color" ||
+                                        activeEl.type === "color");
+
+                                const isModal =
+                                    activeEl &&
+                                    (activeEl.closest("#settings-modal") ||
+                                        activeEl.closest("#save-modal"));
+
+                                // Don't steal focus from color picker or modals
+                                if (!isColorPicker && !isModal) {
+                                    // Immediate refocus
+                                    requestAnimationFrame(() => {
+                                        mobileInput.focus();
+                                    });
+
+                                    // Backup delayed refocus in case immediate fails
+                                    refocusTimer = setTimeout(() => {
+                                        if (
+                                            document.activeElement !==
+                                                mobileInput &&
+                                            !allowBlur
+                                        ) {
+                                            mobileInput.focus();
+                                        }
+                                        refocusTimer = null;
+                                    }, 50);
+                                }
+                            }
+                        });
+
+                        // Allow blur temporarily when buttons are clicked
+                        document
+                            .querySelectorAll("button")
+                            .forEach((button) => {
+                                button.addEventListener("touchstart", (e) => {
+                                    allowBlur = true;
+                                    setTimeout(() => {
+                                        allowBlur = false;
+                                    }, 500);
+                                });
+                            });
+
+                        // Allow blur when color pickers are clicked on mobile
+                        document
+                            .querySelectorAll('input[type="color"]')
+                            .forEach((colorInput) => {
+                                colorInput.addEventListener(
+                                    "touchstart",
+                                    (e) => {
+                                        allowBlur = true;
+                                        // Keep allowBlur true longer for color picker
+                                        // since the color picker dialog may take time to open
+                                        setTimeout(() => {
+                                            allowBlur = false;
+                                        }, 1000);
+                                    },
+                                );
+                            });
+                    }
+
+                    // Button handlers (with touch support)
+                    function setupButton(id, handler) {
+                        const button = document.getElementById(id);
+                        button.addEventListener("click", handler);
+                        button.addEventListener("touchend", (e) => {
+                            e.preventDefault();
+                            handler(e);
+                        });
+                    }
+
+                    // Logo click handler - load version.txt
+                    setupButton("logo-btn", async () => {
+                        try {
+                            const response = await fetch("config/version.txt?v=" + Date.now());
+                            const versionText = await response.text();
+                            if (editor) {
+                                editor.set_text(versionText);
+                                updateStatus("Loaded version information");
+                                // Focus canvas after loading
+                                if (isMobileDevice) {
+                                    mobileInput.focus();
+                                } else {
+                                    canvas.focus();
+                                }
+                            }
+                        } catch (err) {
+                            console.error("Failed to load version.txt:", err);
+                            showError("Failed to load version information");
+                        }
+                    });
+
+                    setupButton("clear-btn", () => {
+                        if (editor) {
+                            editor.set_text("");
+                            updateStatus("Text cleared");
+                            // Focus canvas after action
+                            if (isMobileDevice) {
+                                mobileInput.focus();
+                            } else {
+                                canvas.focus();
+                            }
+                        }
+                    });
+
+                    setupButton("vertical-btn", () => {
+                        if (editor) {
+                            editor.toggle_vertical();
+                            updateStatus("Toggled vertical mode");
+                            // Focus canvas after action
+                            if (isMobileDevice) {
+                                mobileInput.focus();
+                            } else {
+                                canvas.focus();
+                            }
+                        }
+                    });
+
+                    // Keyboard button - toggle input mode
+                    const keyboardBtn = document.getElementById("keyboard-btn");
+
+                    setupButton("keyboard-btn", () => {
+                        isInputModeActive = !isInputModeActive;
+
+                        if (isInputModeActive) {
+                            // Active mode - add active class
+                            keyboardBtn.classList.add("active");
+                            updateStatus("Input mode: ON");
+                        } else {
+                            // Inactive mode - remove active class
+                            keyboardBtn.classList.remove("active");
+                            updateStatus("Input mode: OFF");
+                        }
+
+                        // Focus canvas after action
+                        if (isMobileDevice) {
+                            mobileInput.focus();
+                        } else {
+                            canvas.focus();
+                        }
+                    });
+
+                    // Handle window resize
+                    let resizeTimeout;
+                    window.addEventListener("resize", () => {
+                        clearTimeout(resizeTimeout);
+                        resizeTimeout = setTimeout(() => {
+                            resizeCanvas();
+                            updateStatus("Canvas resized");
+                        }, 250);
+                    });
+
+                    // Handle iOS viewport changes (keyboard, rotation)
+                    if (window.visualViewport) {
+                        window.visualViewport.addEventListener(
+                            "resize",
+                            resizeCanvas,
+                        );
+                        window.visualViewport.addEventListener(
+                            "scroll",
+                            resizeCanvas,
+                        );
+                    }
+                } catch (e) {
+                    console.error("Initialization error:", e);
+                    showError("Failed to initialize: " + e.message);
+
+                    // Show helpful message for mobile
+                    if (/timeout/i.test(e.message)) {
+                        showError(
+                            "Font loading timed out. Please check your network connection and try refreshing.",
+                        );
+                    }
+
+                    document.getElementById("loading").classList.add("hidden");
+                }
+            }
+
+            main();
+        </script>
+    </body>
 </html>

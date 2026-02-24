@@ -18,11 +18,21 @@ export class WasmEditor {
         const ptr = this.__destroy_into_raw();
         wasm.__wbg_wasmeditor_free(ptr, 0);
     }
+    delete_selection() {
+        wasm.wasmeditor_delete_selection(this.__wbg_ptr);
+    }
     /**
      * @returns {any}
      */
     get_cursor_position() {
         const ret = wasm.wasmeditor_get_cursor_position(this.__wbg_ptr);
+        return ret;
+    }
+    /**
+     * @returns {any}
+     */
+    get_selected_text() {
+        const ret = wasm.wasmeditor_get_selected_text(this.__wbg_ptr);
         return ret;
     }
     /**

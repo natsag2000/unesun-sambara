@@ -5,7 +5,9 @@ export class WasmEditor {
     private constructor();
     free(): void;
     [Symbol.dispose](): void;
+    delete_selection(): void;
     get_cursor_position(): any;
+    get_selected_text(): any;
     get_settings_json(): string;
     get_text(): string;
     handle_key_down(event: KeyboardEvent): void;
@@ -33,7 +35,9 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_wasmeditor_free: (a: number, b: number) => void;
+    readonly wasmeditor_delete_selection: (a: number) => void;
     readonly wasmeditor_get_cursor_position: (a: number) => any;
+    readonly wasmeditor_get_selected_text: (a: number) => any;
     readonly wasmeditor_get_settings_json: (a: number) => [number, number, number, number];
     readonly wasmeditor_get_text: (a: number) => [number, number];
     readonly wasmeditor_handle_key_down: (a: number, b: any) => [number, number];

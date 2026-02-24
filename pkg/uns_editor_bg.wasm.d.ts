@@ -2,7 +2,9 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_wasmeditor_free: (a: number, b: number) => void;
+export const wasmeditor_delete_selection: (a: number) => void;
 export const wasmeditor_get_cursor_position: (a: number) => any;
+export const wasmeditor_get_selected_text: (a: number) => any;
 export const wasmeditor_get_settings_json: (a: number) => [number, number, number, number];
 export const wasmeditor_get_text: (a: number) => [number, number];
 export const wasmeditor_handle_key_down: (a: number, b: any) => [number, number];
