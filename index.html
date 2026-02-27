@@ -226,6 +226,9 @@
             <button id="settings-btn" class="toolbar-btn flex" title="Settings">
               <span class="material-symbols-rounded">settings</span>
             </button>
+            <button id="export-btn" class="toolbar-btn flex" title="Export as PNG">
+              <span class="material-symbols-rounded">image</span>
+            </button>
           </div>
 
           <!-- Mobile menu button (hidden on desktop) -->
@@ -274,10 +277,17 @@
         </button>
         <button
           id="mobile-settings-btn"
-          class="w-full px-5 py-3 text-left hover:bg-editor-bg flex items-center gap-3 text-editor-text"
+          class="w-full px-5 py-3 text-left hover:bg-editor-bg flex items-center gap-3 text-editor-text border-b border-editor-border"
         >
           <span class="material-symbols-rounded">settings</span>
           <span>Settings</span>
+        </button>
+        <button
+          id="mobile-export-btn"
+          class="w-full px-5 py-3 text-left hover:bg-editor-bg flex items-center gap-3 text-editor-text"
+        >
+          <span class="material-symbols-rounded">image</span>
+          <span>Export as PNG</span>
         </button>
       </div>
 
@@ -1662,6 +1672,12 @@
               fileManager.openFile();
             }
 
+            // Ctrl+E or Cmd+E - Export as PNG
+            if ((e.ctrlKey || e.metaKey) && e.key === "e") {
+              e.preventDefault();
+              document.getElementById("export-btn").click();
+            }
+
             // Ctrl+Alt+I - Toggle input mode
             if (
               (e.ctrlKey || e.metaKey) &&
@@ -2283,6 +2299,58 @@
 
           setupButton("mobile-settings-btn", () => {
             document.getElementById("settings-btn").click();
+            mobileMenu.classList.add("hidden");
+          });
+
+          // Export canvas as PNG
+          setupButton("export-btn", () => {
+            if (editor) {
+              const canvas = document.getElementById("editor-canvas");
+
+              // Generate filename with timestamp
+              const date = new Date();
+              const timestamp = date
+                .toISOString()
+                .replace(/:/g, "-")
+                .replace(/\..+/, "")
+                .replace("T", "_");
+              const filename = `uns-document_${timestamp}.png`;
+
+              // Convert canvas to blob and download
+              canvas.toBlob((blob) => {
+                if (blob) {
+                  // Use existing downloadBlob method from FileManager
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = filename;
+                  a.style.display = "none";
+                  document.body.appendChild(a);
+                  a.click();
+
+                  setTimeout(() => {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                  }, 100);
+
+                  updateStatus(`Exported as ${filename}`);
+                } else {
+                  showError("Failed to create PNG image");
+                }
+              }, "image/png");
+
+              // Focus canvas after export
+              if (isMobileDevice) {
+                mobileInput.focus();
+              } else {
+                canvas.focus();
+              }
+            }
+          });
+
+          // Mobile menu button delegates to desktop button
+          setupButton("mobile-export-btn", () => {
+            document.getElementById("export-btn").click();
             mobileMenu.classList.add("hidden");
           });
 
