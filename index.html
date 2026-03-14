@@ -180,6 +180,21 @@
           font-size: 20px;
         }
       }
+
+      /* Settings modal tabs */
+      .settings-tab.active {
+        color: #ffffff;
+        border-bottom-color: #3b82f6;
+        background-color: rgba(59, 130, 246, 0.1);
+      }
+
+      .settings-tab-content {
+        display: none;
+      }
+
+      .settings-tab-content.active {
+        display: block;
+      }
     </style>
   </head>
   <body>
@@ -346,7 +361,7 @@
       class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50"
     >
       <div
-        class="bg-editor-header rounded-lg shadow-2xl w-full max-w-2xl sm:max-w-2xl max-w-[95vw] mx-4 max-h-[90vh] overflow-y-auto"
+        class="bg-editor-header rounded-lg shadow-2xl w-full max-w-2xl sm:max-w-2xl max-w-[95vw] mx-4 max-h-[90vh] overflow-hidden flex flex-col"
       >
         <!-- Header -->
         <div
@@ -360,92 +375,151 @@
           </button>
         </div>
 
-        <!-- Body -->
-        <div class="p-6 space-y-6">
-          <!-- Font Settings -->
-          <div class="space-y-4">
-            <h3
-              class="text-sm font-semibold text-white border-b border-editor-border pb-2"
-            >
-              Font Settings
-            </h3>
+        <!-- Tabs -->
+        <div class="flex border-b border-editor-border">
+          <button
+            id="font-tab-btn"
+            class="settings-tab flex-1 px-6 py-3 text-sm font-medium text-editor-text hover:text-white hover:bg-editor-bg transition-colors border-b-2 border-transparent"
+          >
+            Font
+          </button>
+          <button
+            id="color-tab-btn"
+            class="settings-tab flex-1 px-6 py-3 text-sm font-medium text-editor-text hover:text-white hover:bg-editor-bg transition-colors border-b-2 border-transparent"
+          >
+            Color
+          </button>
+        </div>
 
-            <div class="space-y-2">
-              <label class="block text-xs text-editor-text">Font Family</label>
-              <select
-                id="font-family"
-                class="w-full bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-editor-accent"
-              >
-                <option value="Noto Sans Mongolian">Noto Sans Mongolian</option>
-                <option value="Mongolian Baiti">Mongolian Baiti</option>
-                <option value="Noto Sans">Noto Sans</option>
-              </select>
-              <div
-                class="bg-editor-bg border border-editor-border rounded p-4 text-center overflow-y-auto"
-                style="height: 100px"
-              >
-                <div
-                  id="font-preview"
-                  style="
-                    font-size: 24px;
-                    font-family: &quot;Noto Sans Mongolian&quot;;
-                    color: #c8c8c8;
-                    line-height: 30px;
-                    display: inline-block;
-                  "
+        <!-- Body -->
+        <div class="flex-1 overflow-y-auto" style="min-height: 500px;">
+          <!-- Font Tab -->
+          <div id="font-tab" class="settings-tab-content p-6">
+            <div class="space-y-4">
+              <div class="space-y-2">
+                <label class="block text-xs text-editor-text">Font Family</label>
+                <select
+                  id="font-family"
+                  class="w-full bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-editor-accent"
                 >
-                  ᠮᠣᠩᠭᠣᠯ ᠪᠢᠴᠢᠭ᠌
-                  <br />
-                  Traditional Mongolian Script
+                  <option value="Noto Sans Mongolian">Noto Sans Mongolian</option>
+                  <option value="Mongolian Baiti">Mongolian Baiti</option>
+                  <option value="Noto Sans">Noto Sans</option>
+                </select>
+              </div>
+
+              <div class="space-y-2">
+                <label class="block text-xs text-editor-text">
+                  Font Size:
+                  <span id="font-size-value" class="text-white font-semibold"
+                    >24px</span
+                  >
+                </label>
+                <div class="flex items-center gap-3">
+                  <input
+                    type="range"
+                    id="font-size"
+                    min="8"
+                    max="300"
+                    value="24"
+                    step="1"
+                    class="flex-1 h-2 bg-editor-border rounded-lg cursor-pointer accent-editor-accent"
+                  />
+                  <button
+                    id="font-size-down"
+                    class="bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-1 text-sm hover:bg-gray-700 active:bg-gray-800 transition-colors"
+                    title="Decrease font size"
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    id="font-size-input"
+                    min="8"
+                    max="300"
+                    value="24"
+                    class="w-16 bg-editor-bg text-editor-text border border-editor-border rounded px-2 py-1 text-sm text-center focus:ring-2 focus:ring-editor-accent"
+                  />
+                  <button
+                    id="font-size-up"
+                    class="bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-1 text-sm hover:bg-gray-700 active:bg-gray-800 transition-colors"
+                    title="Increase font size"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <div class="space-y-2">
+                <label class="block text-xs text-editor-text">
+                  Line Height:
+                  <span id="line-height-value" class="text-white font-semibold"
+                    >30px</span
+                  >
+                </label>
+                <div class="flex items-center gap-3">
+                  <input
+                    type="range"
+                    id="line-height"
+                    min="8"
+                    max="400"
+                    value="30"
+                    step="1"
+                    class="flex-1 h-2 bg-editor-border rounded-lg cursor-pointer accent-editor-accent"
+                  />
+                  <button
+                    id="line-height-down"
+                    class="bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-1 text-sm hover:bg-gray-700 active:bg-gray-800 transition-colors"
+                    title="Decrease line height"
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    id="line-height-input"
+                    min="8"
+                    max="400"
+                    value="30"
+                    class="w-16 bg-editor-bg text-editor-text border border-editor-border rounded px-2 py-1 text-sm text-center focus:ring-2 focus:ring-editor-accent"
+                  />
+                  <button
+                    id="line-height-up"
+                    class="bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-1 text-sm hover:bg-gray-700 active:bg-gray-800 transition-colors"
+                    title="Increase line height"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <!-- Font Preview - fixed height scrollable -->
+              <div class="space-y-2">
+                <label class="block text-xs text-editor-text">Font Preview</label>
+                <div
+                  class="bg-editor-bg border border-editor-border rounded p-4 text-center overflow-y-auto"
+                  style="height: 250px"
+                >
+                  <div
+                    id="font-preview"
+                    style="
+                      font-size: 24px;
+                      font-family: &quot;Noto Sans Mongolian&quot;;
+                      color: #c8c8c8;
+                      line-height: 30px;
+                      display: inline-block;
+                    "
+                  >
+                    ᠮᠣᠩᠭᠣᠯ ᠪᠢᠴᠢᠭ᠌
+                    <br />
+                    Traditional Mongolian Script
+                  </div>
                 </div>
               </div>
             </div>
-
-            <div class="space-y-2">
-              <label class="block text-xs text-editor-text">
-                Font Size:
-                <span id="font-size-value" class="text-white font-semibold"
-                  >24px</span
-                >
-              </label>
-              <input
-                type="range"
-                id="font-size"
-                min="8"
-                max="300"
-                value="24"
-                step="1"
-                class="w-full h-2 bg-editor-border rounded-lg cursor-pointer accent-editor-accent"
-              />
-            </div>
-
-            <div class="space-y-2">
-              <label class="block text-xs text-editor-text">
-                Line Height:
-                <span id="line-height-value" class="text-white font-semibold"
-                  >30px</span
-                >
-              </label>
-              <input
-                type="range"
-                id="line-height"
-                min="8"
-                max="400"
-                value="30"
-                step="1"
-                class="w-full h-2 bg-editor-border rounded-lg cursor-pointer accent-editor-accent"
-              />
-            </div>
           </div>
 
-          <!-- Color Settings -->
-          <div class="space-y-4">
-            <h3
-              class="text-sm font-semibold text-white border-b border-editor-border pb-2"
-            >
-              Color Settings
-            </h3>
-
+          <!-- Color Tab -->
+          <div id="color-tab" class="settings-tab-content p-6 hidden">
             <div style="display: flex; flex-direction: column; gap: 1rem">
               <div style="display: flex; flex-direction: column; gap: 0.5rem">
                 <label
@@ -1006,8 +1080,14 @@
             fontFamily: document.getElementById("font-family"),
             fontSize: document.getElementById("font-size"),
             fontSizeValue: document.getElementById("font-size-value"),
+            fontSizeInput: document.getElementById("font-size-input"),
+            fontSizeDown: document.getElementById("font-size-down"),
+            fontSizeUp: document.getElementById("font-size-up"),
             lineHeight: document.getElementById("line-height"),
             lineHeightValue: document.getElementById("line-height-value"),
+            lineHeightInput: document.getElementById("line-height-input"),
+            lineHeightDown: document.getElementById("line-height-down"),
+            lineHeightUp: document.getElementById("line-height-up"),
             fontPreview: document.getElementById("font-preview"),
             textColor: document.getElementById("text-color"),
             textColorHex: document.getElementById("text-color-hex"),
@@ -1021,6 +1101,13 @@
             save: document.getElementById("settings-save"),
             cancel: document.getElementById("settings-cancel"),
             reset: document.getElementById("settings-reset"),
+          };
+
+          this.tabs = {
+            fontBtn: document.getElementById("font-tab-btn"),
+            colorBtn: document.getElementById("color-tab-btn"),
+            fontPanel: document.getElementById("font-tab"),
+            colorPanel: document.getElementById("color-tab"),
           };
         }
 
@@ -1040,18 +1127,89 @@
           addHandler(this.buttons.save, () => this.save());
           addHandler(this.buttons.reset, () => this.reset());
 
-          // Live preview for font size
-          this.elements.fontSize.addEventListener("input", (e) => {
-            const size = e.target.value;
+          // Tab switching
+          addHandler(this.tabs.fontBtn, () => this.switchTab("font"));
+          addHandler(this.tabs.colorBtn, () => this.switchTab("color"));
+
+          // Helper function to update font size from any control
+          const updateFontSize = (size) => {
+            // Clamp between min and max
+            size = Math.max(8, Math.min(300, size));
+
+            // Update all controls
+            this.elements.fontSize.value = size;
+            this.elements.fontSizeInput.value = size;
             this.elements.fontSizeValue.textContent = `${size}px`;
             this.elements.fontPreview.style.fontSize = `${size}px`;
+
+            // Automatically adjust line height (1.25x font size)
+            const autoLineHeight = Math.round(size * 1.25);
+            this.elements.lineHeight.value = autoLineHeight;
+            this.elements.lineHeightInput.value = autoLineHeight;
+            this.elements.lineHeightValue.textContent = `${autoLineHeight}px`;
+            this.elements.fontPreview.style.lineHeight = `${autoLineHeight}px`;
+          };
+
+          // Live preview for font size slider
+          this.elements.fontSize.addEventListener("input", (e) => {
+            updateFontSize(parseFloat(e.target.value));
           });
 
-          // Live preview for line height
-          this.elements.lineHeight.addEventListener("input", (e) => {
-            const height = e.target.value;
+          // Font size manual input
+          this.elements.fontSizeInput.addEventListener("input", (e) => {
+            const size = parseFloat(e.target.value);
+            if (!isNaN(size)) {
+              updateFontSize(size);
+            }
+          });
+
+          // Font size decrease button
+          addHandler(this.elements.fontSizeDown, () => {
+            const currentSize = parseFloat(this.elements.fontSize.value);
+            updateFontSize(currentSize - 1);
+          });
+
+          // Font size increase button
+          addHandler(this.elements.fontSizeUp, () => {
+            const currentSize = parseFloat(this.elements.fontSize.value);
+            updateFontSize(currentSize + 1);
+          });
+
+          // Helper function to update line height from any control
+          const updateLineHeight = (height) => {
+            // Clamp between min and max
+            height = Math.max(8, Math.min(400, height));
+
+            // Update all controls
+            this.elements.lineHeight.value = height;
+            this.elements.lineHeightInput.value = height;
             this.elements.lineHeightValue.textContent = `${height}px`;
             this.elements.fontPreview.style.lineHeight = `${height}px`;
+          };
+
+          // Live preview for line height slider
+          this.elements.lineHeight.addEventListener("input", (e) => {
+            updateLineHeight(parseFloat(e.target.value));
+          });
+
+          // Line height manual input
+          this.elements.lineHeightInput.addEventListener("input", (e) => {
+            const height = parseFloat(e.target.value);
+            if (!isNaN(height)) {
+              updateLineHeight(height);
+            }
+          });
+
+          // Line height decrease button
+          addHandler(this.elements.lineHeightDown, () => {
+            const currentHeight = parseFloat(this.elements.lineHeight.value);
+            updateLineHeight(currentHeight - 1);
+          });
+
+          // Line height increase button
+          addHandler(this.elements.lineHeightUp, () => {
+            const currentHeight = parseFloat(this.elements.lineHeight.value);
+            updateLineHeight(currentHeight + 1);
           });
 
           // Live preview for font family
@@ -1092,8 +1250,26 @@
 
         open() {
           this.loadSettings();
+          this.switchTab("font"); // Default to font tab
           this.modal.classList.remove("hidden");
           this.modal.classList.add("flex");
+        }
+
+        switchTab(tabName) {
+          // Remove active class from all tabs and panels
+          this.tabs.fontBtn.classList.remove("active");
+          this.tabs.colorBtn.classList.remove("active");
+          this.tabs.fontPanel.classList.remove("active");
+          this.tabs.colorPanel.classList.remove("active");
+
+          // Add active class to selected tab and panel
+          if (tabName === "font") {
+            this.tabs.fontBtn.classList.add("active");
+            this.tabs.fontPanel.classList.add("active");
+          } else if (tabName === "color") {
+            this.tabs.colorBtn.classList.add("active");
+            this.tabs.colorPanel.classList.add("active");
+          }
         }
 
         close() {
@@ -1120,8 +1296,10 @@
 
             this.elements.fontFamily.value = settings.fonts.font_family;
             this.elements.fontSize.value = settings.fonts.font_size;
+            this.elements.fontSizeInput.value = settings.fonts.font_size;
             this.elements.fontSizeValue.textContent = `${settings.fonts.font_size}px`;
             this.elements.lineHeight.value = settings.fonts.line_height;
+            this.elements.lineHeightInput.value = settings.fonts.line_height;
             this.elements.lineHeightValue.textContent = `${settings.fonts.line_height}px`;
 
             this.elements.fontPreview.style.fontFamily =
