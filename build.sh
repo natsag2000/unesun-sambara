@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+echo "Preparing dictionary..."
+npm run prepare:dict
+
+echo ""
 echo "Building Tailwind CSS..."
 npm run build:css
 

@@ -26,6 +26,30 @@ export class WasmEditor {
     set_size(width: number, height: number): void;
     set_text(text: string): void;
     toggle_vertical(): void;
+    /**
+     * Sets up (or resizes) the offscreen translit renderer bound to the
+     * given canvas element.
+     */
+    translit_init_canvas(canvas_id: string, width: number, height: number): void;
+    /**
+     * Returns true if the dictionary has been loaded.
+     */
+    translit_is_loaded(): boolean;
+    /**
+     * Fetches and parses the dictionary TSV. Safe to call multiple times; the
+     * actual network + parse work happens only on the first call. Subsequent
+     * calls resolve immediately.
+     */
+    translit_load_dictionary(url: string): Promise<void>;
+    /**
+     * Looks up a Cyrillic word and returns
+     * `{ found: bool, mongolian: string | null, variants: number }`.
+     */
+    translit_lookup(cyrillic: string): any;
+    /**
+     * Renders the given Mongolian text vertically onto the translit canvas.
+     */
+    translit_render(canvas_id: string, text: string): void;
 }
 
 export function main(): void;
@@ -56,6 +80,11 @@ export interface InitOutput {
     readonly wasmeditor_set_size: (a: number, b: number, c: number) => void;
     readonly wasmeditor_set_text: (a: number, b: number, c: number) => void;
     readonly wasmeditor_toggle_vertical: (a: number) => void;
+    readonly wasmeditor_translit_init_canvas: (a: number, b: number, c: number, d: number, e: number) => [number, number];
+    readonly wasmeditor_translit_is_loaded: (a: number) => number;
+    readonly wasmeditor_translit_load_dictionary: (a: number, b: number, c: number) => any;
+    readonly wasmeditor_translit_lookup: (a: number, b: number, c: number) => any;
+    readonly wasmeditor_translit_render: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly main: () => void;
     readonly wasm_bindgen__closure__destroy__h9fe21e8b023d8040: (a: number, b: number) => void;
     readonly wasm_bindgen__convert__closures_____invoke__h23f0b2cb1aaf7965: (a: number, b: number, c: any, d: any) => void;

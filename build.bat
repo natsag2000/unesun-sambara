@@ -1,4 +1,9 @@
 @echo off
+echo Preparing dictionary...
+call npm run prepare:dict
+if %ERRORLEVEL% NEQ 0 exit /b 1
+
+echo.
 echo Building Tailwind CSS...
 call npm run build:css
 if %ERRORLEVEL% NEQ 0 exit /b 1

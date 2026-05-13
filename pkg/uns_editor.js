@@ -205,6 +205,69 @@ export class WasmEditor {
     toggle_vertical() {
         wasm.wasmeditor_toggle_vertical(this.__wbg_ptr);
     }
+    /**
+     * Sets up (or resizes) the offscreen translit renderer bound to the
+     * given canvas element.
+     * @param {string} canvas_id
+     * @param {number} width
+     * @param {number} height
+     */
+    translit_init_canvas(canvas_id, width, height) {
+        const ptr0 = passStringToWasm0(canvas_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmeditor_translit_init_canvas(this.__wbg_ptr, ptr0, len0, width, height);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * Returns true if the dictionary has been loaded.
+     * @returns {boolean}
+     */
+    translit_is_loaded() {
+        const ret = wasm.wasmeditor_translit_is_loaded(this.__wbg_ptr);
+        return ret !== 0;
+    }
+    /**
+     * Fetches and parses the dictionary TSV. Safe to call multiple times; the
+     * actual network + parse work happens only on the first call. Subsequent
+     * calls resolve immediately.
+     * @param {string} url
+     * @returns {Promise<void>}
+     */
+    translit_load_dictionary(url) {
+        const ptr0 = passStringToWasm0(url, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmeditor_translit_load_dictionary(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * Looks up a Cyrillic word and returns
+     * `{ found: bool, mongolian: string | null, variants: number }`.
+     * @param {string} cyrillic
+     * @returns {any}
+     */
+    translit_lookup(cyrillic) {
+        const ptr0 = passStringToWasm0(cyrillic, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmeditor_translit_lookup(this.__wbg_ptr, ptr0, len0);
+        return ret;
+    }
+    /**
+     * Renders the given Mongolian text vertically onto the translit canvas.
+     * @param {string} canvas_id
+     * @param {string} text
+     */
+    translit_render(canvas_id, text) {
+        const ptr0 = passStringToWasm0(canvas_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmeditor_translit_render(this.__wbg_ptr, ptr0, len0, ptr1, len1);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
 }
 if (Symbol.dispose) WasmEditor.prototype[Symbol.dispose] = WasmEditor.prototype.free;
 
@@ -427,6 +490,10 @@ function __wbg_get_imports() {
             const ret = new ImageData(getClampedArrayU8FromWasm0(arg0, arg1), arg2 >>> 0, arg3 >>> 0);
             return ret;
         }, arguments); },
+        __wbg_ok_87f537440a0acf85: function(arg0) {
+            const ret = arg0.ok;
+            return ret;
+        },
         __wbg_preventDefault_cdcfcd7e301b9702: function(arg0) {
             arg0.preventDefault();
         },
@@ -491,6 +558,10 @@ function __wbg_get_imports() {
             const ret = typeof window === 'undefined' ? null : window;
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
         },
+        __wbg_status_89d7e803db911ee7: function(arg0) {
+            const ret = arg0.status;
+            return ret;
+        },
         __wbg_target_521be630ab05b11e: function(arg0) {
             const ret = arg0.target;
             return isLikeNone(ret) ? 0 : addToExternrefTable0(ret);
@@ -528,7 +599,7 @@ function __wbg_get_imports() {
             return ret;
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 108, function: Function { arguments: [Externref], shim_idx: 109, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 109, function: Function { arguments: [Externref], shim_idx: 110, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h9fe21e8b023d8040, wasm_bindgen__convert__closures_____invoke__h5ce99ad185dd8d06);
             return ret;
         },

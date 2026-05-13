@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>unesun sambarA - Mongolian Text Editor</title>
-    <link rel="stylesheet" href="dist/output.css?v=5" />
+    <link rel="stylesheet" href="dist/output.css?v=9" />
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0"
@@ -241,6 +241,13 @@
             <button id="settings-btn" class="toolbar-btn flex" title="Settings">
               <span class="material-symbols-rounded">settings</span>
             </button>
+            <button
+              id="translit-btn"
+              class="toolbar-btn flex"
+              title="Cyrillic to Mongolian Transliteration (Ctrl+T)"
+            >
+              <span class="material-symbols-rounded">abc</span>
+            </button>
             <button id="export-btn" class="toolbar-btn flex" title="Export as PNG">
               <span class="material-symbols-rounded">image</span>
             </button>
@@ -296,6 +303,13 @@
         >
           <span class="material-symbols-rounded">settings</span>
           <span>Settings</span>
+        </button>
+        <button
+          id="mobile-translit-btn"
+          class="w-full px-5 py-3 text-left hover:bg-editor-bg flex items-center gap-3 text-editor-text border-b border-editor-border"
+        >
+          <span class="material-symbols-rounded">abc</span>
+          <span>Transliterate</span>
         </button>
         <button
           id="mobile-export-btn"
@@ -622,6 +636,102 @@
       </div>
     </div>
 
+    <!-- Transliteration Modal -->
+    <div
+      id="translit-modal"
+      class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50"
+    >
+      <div
+        class="bg-editor-header rounded-lg shadow-2xl w-full mx-4 max-h-[90vh] flex flex-col"
+        style="max-width: 31ch"
+      >
+        <!-- Header -->
+        <div
+          class="flex justify-between items-center px-4 py-3 border-b border-editor-border"
+        >
+          <h2 class="text-white font-semibold">
+            Cyrillic to Mongolian Transliteration
+          </h2>
+          <button
+            id="translit-close"
+            class="text-editor-text hover:text-white text-3xl leading-none"
+            title="Close (Esc)"
+          >
+            &times;
+          </button>
+        </div>
+
+        <!-- Body -->
+        <div class="p-5 flex flex-col gap-4 flex-1 min-h-0">
+          <div class="flex-1 min-h-0">
+            <label class="block text-xs text-editor-text mb-1"
+              >Mongolian (vertical)</label
+            >
+            <div
+              id="translit-canvas-container"
+              class="bg-editor-bg border border-editor-border rounded w-full"
+              style="height: 320px"
+            >
+              <canvas
+                id="translit-canvas"
+                class="block w-full h-full"
+              ></canvas>
+            </div>
+          </div>
+
+          <div
+            id="translit-status"
+            class="text-xs text-editor-text min-h-[1rem]"
+          >
+            Ready
+          </div>
+
+          <div class="space-y-1">
+            <label class="block text-xs text-editor-text" for="translit-input"
+              >Cyrillic input (Enter inserts, Esc clears / closes)</label
+            >
+            <input
+              id="translit-input"
+              type="text"
+              autocomplete="off"
+              autocorrect="off"
+              autocapitalize="off"
+              spellcheck="false"
+              placeholder="Type a Cyrillic word..."
+              class="w-full bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-2 text-lg text-center focus:ring-2 focus:ring-editor-accent"
+              style="direction: ltr"
+            />
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div
+          class="flex justify-end gap-3 px-5 py-3 border-t border-editor-border"
+        >
+          <button
+            id="translit-cancel"
+            class="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700 active:bg-gray-800 transition-colors"
+          >
+            Close
+          </button>
+          <button
+            id="translit-copy"
+            class="bg-gray-600 text-white px-4 py-2 rounded text-sm hover:bg-gray-700 active:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled
+          >
+            Copy
+          </button>
+          <button
+            id="translit-insert"
+            class="bg-editor-accent text-white px-4 py-2 rounded text-sm hover:bg-blue-600 active:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled
+          >
+            Insert
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Save Modal -->
     <div
       id="save-modal"
@@ -709,10 +819,13 @@
     />
 
     <script type="module">
-      import init, { WasmEditor } from "./pkg/uns_editor.js?v=3";
+      import init, { WasmEditor } from "./pkg/uns_editor.js?v=5";
 
       let editor = null;
       let animationId = null;
+      // When true, the rAF loop skips calling into the WASM editor. Used to
+      // avoid recursive borrows when an `async` WASM method is on the stack.
+      let renderPaused = false;
 
       let errorTimeout = null;
 
@@ -1054,7 +1167,7 @@
       }
 
       function animate(timestamp) {
-        if (editor) {
+        if (editor && !renderPaused) {
           try {
             editor.render(timestamp);
             updateCursorPosition();
@@ -1790,6 +1903,299 @@
         }
       }
 
+      // Cyrillic -> Mongolian transliteration dialog.
+      // Reuses the main editor's FontSystem/SwashCache (via WASM methods)
+      // so the Mongolian output is rendered identically to the main editor.
+      class TranslitModal {
+        constructor(editor) {
+          this.editor = editor;
+          this.modal = document.getElementById("translit-modal");
+          this.input = document.getElementById("translit-input");
+          this.status = document.getElementById("translit-status");
+          this.canvas = document.getElementById("translit-canvas");
+          this.canvasContainer = document.getElementById(
+            "translit-canvas-container",
+          );
+          this.copyBtn = document.getElementById("translit-copy");
+          this.insertBtn = document.getElementById("translit-insert");
+          this.cancelBtn = document.getElementById("translit-cancel");
+          this.closeBtn = document.getElementById("translit-close");
+          this.openBtn = document.getElementById("translit-btn");
+
+          this.dictionaryLoaded = false;
+          this.currentMongolian = null;
+          this.debounceTimer = null;
+          this.resizeObserver = null;
+
+          this.attachEventListeners();
+        }
+
+        attachEventListeners() {
+          const addHandler = (button, handler) => {
+            if (!button) return;
+            button.addEventListener("click", handler);
+            button.addEventListener("touchend", (e) => {
+              e.preventDefault();
+              handler();
+            });
+          };
+
+          addHandler(this.openBtn, () => this.open());
+          addHandler(this.closeBtn, () => this.close());
+          addHandler(this.cancelBtn, () => this.close());
+          addHandler(this.copyBtn, () => this.copyResult());
+          addHandler(this.insertBtn, () => this.insertResult());
+
+          // Typing triggers debounced lookup.
+          this.input.addEventListener("input", () => {
+            if (this.debounceTimer) {
+              clearTimeout(this.debounceTimer);
+            }
+            this.debounceTimer = setTimeout(() => {
+              this.lookupAndRender();
+            }, 120);
+          });
+
+          // Enter and Escape have special behaviour.
+          this.input.addEventListener("keydown", (e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              this.insertResult();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              if (this.input.value.length > 0) {
+                // Clear input and canvas, keep dialog open.
+                this.input.value = "";
+                this.currentMongolian = null;
+                this.updateStatus("Ready");
+                this.clearCanvas();
+                this.updateButtons();
+              } else {
+                this.close();
+              }
+            }
+          });
+
+          // Close on outside click.
+          this.modal.addEventListener("click", (e) => {
+            if (e.target === this.modal) this.close();
+          });
+        }
+
+        async open() {
+          this.modal.classList.remove("hidden");
+          this.modal.classList.add("flex");
+
+          // Size the canvas to its container (DPI-aware).
+          this.resizeCanvas();
+
+          // Observe container size changes while modal is open.
+          if (!this.resizeObserver && window.ResizeObserver) {
+            this.resizeObserver = new ResizeObserver(() => {
+              if (!this.modal.classList.contains("hidden")) {
+                this.resizeCanvas();
+                if (this.currentMongolian) {
+                  // Re-render so text stays visible at new canvas size.
+                  try {
+                    this.editor.translit_render(
+                      "translit-canvas",
+                      this.currentMongolian,
+                    );
+                  } catch (e) {
+                    /* ignore */
+                  }
+                }
+              }
+            });
+            this.resizeObserver.observe(this.canvasContainer);
+          }
+
+          // Lazy dictionary load on first open.
+          if (!this.dictionaryLoaded) {
+            this.updateStatus("Loading dictionary...");
+            this.input.disabled = true;
+            // Pause the main render loop while we hold a mutable borrow of
+            // the WASM editor across `await`. Without this, the rAF loop
+            // calls `editor.render()` and trips the recursive-borrow panic.
+            renderPaused = true;
+            try {
+              await this.editor.translit_load_dictionary(
+                "dist/dictionary/01_kv.tsv",
+              );
+              this.dictionaryLoaded = true;
+              this.updateStatus("Ready");
+            } catch (e) {
+              console.error("Dictionary load failed:", e);
+              this.updateStatus("Failed to load dictionary");
+              showError("Failed to load transliteration dictionary");
+              return;
+            } finally {
+              renderPaused = false;
+              this.input.disabled = false;
+            }
+          } else {
+            this.updateStatus("Ready");
+          }
+
+          // Focus input after paint so the caret is visible.
+          requestAnimationFrame(() => {
+            this.input.focus();
+            this.input.select();
+          });
+        }
+
+        close() {
+          this.modal.classList.add("hidden");
+          this.modal.classList.remove("flex");
+          if (this.debounceTimer) {
+            clearTimeout(this.debounceTimer);
+            this.debounceTimer = null;
+          }
+          if (this.resizeObserver) {
+            this.resizeObserver.disconnect();
+            this.resizeObserver = null;
+          }
+
+          // Return focus to the main editor.
+          const canvas = document.getElementById("editor-canvas");
+          const mobileInput = document.getElementById("mobile-input");
+          const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(
+            navigator.userAgent,
+          );
+          if (isMobileDevice) {
+            mobileInput.focus();
+          } else {
+            canvas.focus();
+          }
+        }
+
+        resizeCanvas() {
+          const dpr = window.devicePixelRatio || 1;
+          const rect = this.canvasContainer.getBoundingClientRect();
+          const width = Math.max(1, Math.floor(rect.width * dpr));
+          const height = Math.max(1, Math.floor(rect.height * dpr));
+          this.canvas.width = width;
+          this.canvas.height = height;
+          this.canvas.style.width = rect.width + "px";
+          this.canvas.style.height = rect.height + "px";
+          try {
+            this.editor.translit_init_canvas(
+              "translit-canvas",
+              width,
+              height,
+            );
+          } catch (e) {
+            console.error("translit_init_canvas failed:", e);
+          }
+        }
+
+        clearCanvas() {
+          // A blank render paints the current background colour across the
+          // canvas without drawing any glyphs.
+          try {
+            this.editor.translit_render("translit-canvas", "");
+          } catch (e) {
+            /* ignore */
+          }
+        }
+
+        lookupAndRender() {
+          if (!this.dictionaryLoaded) return;
+          const query = this.input.value.trim();
+          if (!query) {
+            this.currentMongolian = null;
+            this.updateStatus("Ready");
+            this.clearCanvas();
+            this.updateButtons();
+            return;
+          }
+
+          let result;
+          try {
+            result = this.editor.translit_lookup(query);
+          } catch (e) {
+            console.error("translit_lookup failed:", e);
+            this.updateStatus("Lookup error");
+            return;
+          }
+
+          if (result && result.found) {
+            this.currentMongolian = result.mongolian;
+            this.updateStatus(
+              result.variants > 1
+                ? `${result.variants} variants - showing 1`
+                : "Match",
+            );
+            try {
+              this.editor.translit_render(
+                "translit-canvas",
+                this.currentMongolian,
+              );
+            } catch (e) {
+              console.error("translit_render failed:", e);
+              this.updateStatus("Render error");
+            }
+          } else {
+            this.currentMongolian = null;
+            this.updateStatus("Not found");
+            this.clearCanvas();
+          }
+
+          this.updateButtons();
+        }
+
+        updateStatus(text) {
+          this.status.textContent = text;
+        }
+
+        updateButtons() {
+          const hasResult = !!this.currentMongolian;
+          this.copyBtn.disabled = !hasResult;
+          this.insertBtn.disabled = !hasResult;
+        }
+
+        copyResult() {
+          if (!this.currentMongolian) return;
+          navigator.clipboard
+            .writeText(this.currentMongolian)
+            .then(() => {
+              this.updateStatus("Copied to clipboard");
+            })
+            .catch((err) => {
+              console.error("Copy failed:", err);
+              this.updateStatus("Copy failed");
+            });
+        }
+
+        insertResult() {
+          if (!this.currentMongolian) {
+            this.flashNotFound();
+            return;
+          }
+          try {
+            // Append a trailing space so consecutive inserts stay separated
+            // and the user can keep typing more words without leaving the
+            // dialog.
+            this.editor.insert_text(this.currentMongolian + " ");
+          } catch (e) {
+            console.error("insert_text failed:", e);
+            showError("Insert failed: " + e.message);
+            return;
+          }
+          // Clear input for next word, keep dialog open.
+          this.input.value = "";
+          this.currentMongolian = null;
+          this.updateStatus("Inserted. Type next word...");
+          this.clearCanvas();
+          this.updateButtons();
+          this.input.focus();
+        }
+
+        flashNotFound() {
+          this.updateStatus("Not found - nothing to insert");
+        }
+      }
+
       async function main() {
         try {
           // Detect mobile device first (needed throughout initialization)
@@ -1803,7 +2209,7 @@
           let bufferedFormatControl = null; // Buffer for U+202F or U+180E
 
           // Initialize WASM with cache-busting parameter
-          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=3" });
+          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=5" });
 
           // Setup canvas
           const { width, height } = resizeCanvas();
@@ -1836,6 +2242,9 @@
           // Initialize file manager
           const fileManager = new FileManager(editor);
 
+          // Initialize transliteration modal
+          const translitModal = new TranslitModal(editor);
+
           // Keyboard shortcuts for save/open
           document.addEventListener("keydown", (e) => {
             // Ctrl+S or Cmd+S - Open save modal
@@ -1854,6 +2263,17 @@
             if ((e.ctrlKey || e.metaKey) && e.key === "e") {
               e.preventDefault();
               document.getElementById("export-btn").click();
+            }
+
+            // Ctrl+T or Cmd+T - Open transliteration dialog
+            if (
+              (e.ctrlKey || e.metaKey) &&
+              !e.altKey &&
+              !e.shiftKey &&
+              (e.key === "t" || e.key === "T")
+            ) {
+              e.preventDefault();
+              translitModal.open();
             }
 
             // Ctrl+Alt+I - Toggle input mode
@@ -2477,6 +2897,11 @@
 
           setupButton("mobile-settings-btn", () => {
             document.getElementById("settings-btn").click();
+            mobileMenu.classList.add("hidden");
+          });
+
+          setupButton("mobile-translit-btn", () => {
+            document.getElementById("translit-btn").click();
             mobileMenu.classList.add("hidden");
           });
 

@@ -1,5 +1,7 @@
 mod config;
+mod dictionary;
 mod editor_core;
+mod translit;
 
 use cosmic_text::{
     Action, Color, Motion, Selection, Edit,
@@ -8,8 +10,10 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData, KeyboardEvent, MouseEvent, WheelEvent, TouchEvent};
 
+use dictionary::lookup::Dictionary;
 use editor_core::editor_state::EditorState;
 use config::settings::EditorSettings;
+use translit::renderer::TranslitRenderer;
 
 // Padding from top and left for vertical text to prevent cursor being cut off
 const VERTICAL_TOP_PADDING: i32 = 10;
@@ -30,6 +34,8 @@ pub struct WasmEditor {
     last_touch_y: i32,
     touch_start_time: f64,
     is_touch_scrolling: bool,
+    dictionary: Option<Dictionary>,
+    translit_renderer: Option<TranslitRenderer>,
 }
 
 #[wasm_bindgen]
@@ -76,6 +82,8 @@ impl WasmEditor {
             last_touch_y: 0,
             touch_start_time: 0.0,
             is_touch_scrolling: false,
+            dictionary: None,
+            translit_renderer: None,
         })
     }
 
@@ -840,6 +848,119 @@ impl WasmEditor {
         js_sys::Reflect::set(&obj, &"line".into(), &(cursor.line + 1).into()).unwrap();
         js_sys::Reflect::set(&obj, &"column".into(), &(cursor.index + 1).into()).unwrap();
         obj.into()
+    }
+
+    // ================= Cyrillic -> Mongolian transliteration =================
+
+    /// Fetches and parses the dictionary TSV. Safe to call multiple times; the
+    /// actual network + parse work happens only on the first call. Subsequent
+    /// calls resolve immediately.
+    #[wasm_bindgen]
+    pub async fn translit_load_dictionary(&mut self, url: String) -> Result<(), JsValue> {
+        if self.dictionary.is_some() {
+            return Ok(());
+        }
+        let dict = Dictionary::load(&url).await?;
+        self.dictionary = Some(dict);
+        Ok(())
+    }
+
+    /// Returns true if the dictionary has been loaded.
+    #[wasm_bindgen]
+    pub fn translit_is_loaded(&self) -> bool {
+        self.dictionary.is_some()
+    }
+
+    /// Looks up a Cyrillic word and returns
+    /// `{ found: bool, mongolian: string | null, variants: number }`.
+    #[wasm_bindgen]
+    pub fn translit_lookup(&self, cyrillic: &str) -> JsValue {
+        let obj = js_sys::Object::new();
+        let mut found = false;
+        let mut mongolian: Option<&str> = None;
+        let mut variants: u32 = 0;
+
+        if let Some(dict) = &self.dictionary {
+            if let Some(entries) = dict.lookup(cyrillic) {
+                if !entries.is_empty() {
+                    found = true;
+                    mongolian = Some(entries[0].as_str());
+                    variants = entries.len() as u32;
+                }
+            }
+        }
+
+        js_sys::Reflect::set(&obj, &"found".into(), &found.into()).unwrap();
+        js_sys::Reflect::set(
+            &obj,
+            &"mongolian".into(),
+            &match mongolian {
+                Some(s) => JsValue::from_str(s),
+                None => JsValue::NULL,
+            },
+        )
+        .unwrap();
+        js_sys::Reflect::set(&obj, &"variants".into(), &variants.into()).unwrap();
+        obj.into()
+    }
+
+    /// Sets up (or resizes) the offscreen translit renderer bound to the
+    /// given canvas element.
+    #[wasm_bindgen]
+    pub fn translit_init_canvas(
+        &mut self,
+        canvas_id: &str,
+        width: u32,
+        height: u32,
+    ) -> Result<(), JsValue> {
+        // Verify the canvas exists so JS gets a meaningful error early.
+        let window = web_sys::window().ok_or("No window")?;
+        let document = window.document().ok_or("No document")?;
+        document
+            .get_element_by_id(canvas_id)
+            .ok_or_else(|| JsValue::from_str("Translit canvas not found"))?
+            .dyn_into::<HtmlCanvasElement>()?;
+
+        match &mut self.translit_renderer {
+            Some(renderer) => {
+                renderer.resize(&mut self.state.font_system, width, height);
+                renderer.apply_settings(&mut self.state.font_system, &self.state.settings);
+            }
+            None => {
+                self.translit_renderer = Some(TranslitRenderer::new(
+                    &mut self.state.font_system,
+                    &self.state.settings,
+                    width,
+                    height,
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Renders the given Mongolian text vertically onto the translit canvas.
+    #[wasm_bindgen]
+    pub fn translit_render(&mut self, canvas_id: &str, text: &str) -> Result<(), JsValue> {
+        let window = web_sys::window().ok_or("No window")?;
+        let document = window.document().ok_or("No document")?;
+        let canvas = document
+            .get_element_by_id(canvas_id)
+            .ok_or_else(|| JsValue::from_str("Translit canvas not found"))?
+            .dyn_into::<HtmlCanvasElement>()?;
+
+        let renderer = self
+            .translit_renderer
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("Translit renderer not initialized"))?;
+
+        renderer.apply_settings(&mut self.state.font_system, &self.state.settings);
+        renderer.set_text(&mut self.state.font_system, &self.state.settings, text);
+        renderer.render(
+            &mut self.state.font_system,
+            &mut self.state.cache,
+            &self.state.settings,
+            &canvas,
+        )
     }
 }
 
