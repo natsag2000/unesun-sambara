@@ -20,10 +20,6 @@ impl Default for EditorSettings {
 }
 
 impl EditorSettings {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn to_json(&self) -> Result<String, JsValue> {
         serde_json::to_string(self)
             .map_err(|e| JsValue::from_str(&e.to_string()))
@@ -33,21 +29,6 @@ impl EditorSettings {
         serde_json::from_str(json)
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
-}
-
-// Helper functions (not currently used but available for future use)
-#[allow(dead_code)]
-fn color_to_hex(color: &Color) -> String {
-    format!("#{:02x}{:02x}{:02x}", color.r(), color.g(), color.b())
-}
-
-#[allow(dead_code)]
-fn hex_to_color(hex: &str) -> Color {
-    let hex = hex.trim_start_matches('#');
-    let r = u8::from_str_radix(&hex[0..2], 16).unwrap_or(0);
-    let g = u8::from_str_radix(&hex[2..4], 16).unwrap_or(0);
-    let b = u8::from_str_radix(&hex[4..6], 16).unwrap_or(0);
-    Color::rgb(r, g, b)
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -69,9 +50,11 @@ pub struct AppearanceSettings {
 impl Default for AppearanceSettings {
     fn default() -> Self {
         Self {
-            text_color: Color::rgb(115, 247, 63),
-            background_color: Color::rgb(12, 12, 12),
-            cursor_color: Color::rgb(255, 255, 255),
+            // Canonical defaults (see prompt/FUTURE_PLAN.md P0-01):
+            // dark text on a light background for a paper-like editing surface.
+            text_color: Color::rgb(0x0d, 0x0d, 0x0d),       // #0d0d0d
+            background_color: Color::rgb(0xf5, 0xf5, 0xf5), // #f5f5f5
+            cursor_color: Color::rgb(0x0d, 0x0d, 0x0d),     // matches text
             selection_color: Color::rgba(80, 120, 200, 128),
             gutter_background: Color::rgb(37, 37, 38),
             line_number_color: Color::rgb(133, 133, 133),
@@ -90,8 +73,8 @@ impl Default for FontSettings {
     fn default() -> Self {
         Self {
             font_family: "Noto Sans Mongolian".to_string(),
-            font_size: 73.0,
-            line_height: 93.0,
+            font_size: 43.0,
+            line_height: 54.0,
         }
     }
 }

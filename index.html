@@ -1437,24 +1437,29 @@
 
         save() {
           try {
+            // Merge on top of the current settings so that fields the UI does
+            // not expose (orientation, selection_color, gutter_background,
+            // line_number_color) are preserved instead of clobbered.
+            // See P0-02 and P0-03 in prompt/FUTURE_PLAN.md.
+            const current = JSON.parse(this.editor.get_settings_json());
             const settings = {
+              ...current,
               appearance: {
+                ...current.appearance,
                 text_color: this.elements.textColor.value,
                 background_color: this.elements.backgroundColor.value,
                 cursor_color: getCursorColor(
                   this.elements.backgroundColor.value,
                 ),
-                selection_color: "#5078c880",
-                gutter_background: "#252526",
-                line_number_color: "#858585",
               },
               fonts: {
+                ...current.fonts,
                 font_family: this.elements.fontFamily.value,
                 font_size: parseFloat(this.elements.fontSize.value),
                 line_height: parseFloat(this.elements.lineHeight.value),
               },
               editor: {
-                orientation: "vertical",
+                ...current.editor,
               },
             };
 
@@ -1475,25 +1480,9 @@
         reset() {
           if (confirm("Reset all settings to defaults?")) {
             localStorage.removeItem("uns-editor-settings");
-            const defaults = {
-              appearance: {
-                text_color: "#c8c8c8",
-                background_color: "#2b2b2b",
-                cursor_color: getCursorColor("#2b2b2b"),
-                selection_color: "#5078c880",
-                gutter_background: "#252526",
-                line_number_color: "#858585",
-              },
-              fonts: {
-                font_family: "Noto Sans Mongolian",
-                font_size: 24,
-                line_height: 30,
-              },
-              editor: {
-                orientation: "vertical",
-              },
-            };
-            this.editor.set_settings_json(JSON.stringify(defaults));
+            // Rust is the single source of truth for defaults (P0-01).
+            const defaultsJson = this.editor.reset_to_defaults();
+            localStorage.setItem("uns-editor-settings", defaultsJson);
             this.loadSettings();
             updateStatus("Settings reset to defaults");
           }

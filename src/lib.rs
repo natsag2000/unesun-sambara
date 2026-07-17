@@ -841,6 +841,25 @@ impl WasmEditor {
         Ok(())
     }
 
+    /// Resets settings to the built-in defaults, applies them, and returns the
+    /// resulting JSON so the JS layer can update its UI and localStorage
+    /// without duplicating the default values. See P0-01 in
+    /// `prompt/FUTURE_PLAN.md`.
+    #[wasm_bindgen]
+    pub fn reset_to_defaults(&mut self) -> Result<String, JsValue> {
+        let settings = EditorSettings::default();
+        let json = settings.to_json()?;
+        self.state.update_settings(settings);
+        Ok(json)
+    }
+
+    /// Returns the built-in default settings as JSON without mutating the
+    /// editor state. Useful for previewing defaults or seeding local UI.
+    #[wasm_bindgen]
+    pub fn get_default_settings_json(&self) -> Result<String, JsValue> {
+        EditorSettings::default().to_json()
+    }
+
     #[wasm_bindgen]
     pub fn get_cursor_position(&self) -> JsValue {
         let cursor = self.state.editor.cursor();
