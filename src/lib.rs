@@ -12,6 +12,8 @@ use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData, KeyboardEv
 
 use dictionary::lookup::Dictionary;
 use editor_core::editor_state::EditorState;
+use editor_core::events::{EditorEvent, KeyInfo};
+use editor_core::plugin::{PluginContext, PluginRegistry};
 use config::settings::EditorSettings;
 use translit::renderer::TranslitRenderer;
 
@@ -85,6 +87,31 @@ impl WasmEditor {
             dictionary: None,
             translit_renderer: None,
         })
+    }
+
+    /// Fan an event out to every plugin registered on `state`.
+    ///
+    /// The registry lives inside `state`, so we cannot borrow both at
+    /// the same time. Instead we swap the registry out with an empty
+    /// placeholder, dispatch on the owned copy, and swap it back. This
+    /// keeps dispatch cheap (moves, no clones) while satisfying the
+    /// borrow checker.
+    fn dispatch_event(&mut self, event: EditorEvent) {
+        let mut registry = std::mem::replace(&mut self.state.plugins, PluginRegistry::new());
+        registry.dispatch_event(&mut self.state, &event);
+        // Also notify raw bus subscribers (non-plugin listeners).
+        self.state.events.dispatch(&event);
+        // Restore the registry. If dispatch replaced state.plugins with
+        // a fresh registry (it cannot today, but the API allows it),
+        // preserve whatever landed there by extending.
+        if self.state.plugins.plugin_count() == 0 {
+            self.state.plugins = registry;
+        } else {
+            // Extremely unlikely; keep the newer registry and drop the
+            // one we pulled out. Documented so future maintainers know
+            // this branch is intentional.
+            let _ = registry;
+        }
     }
 
     pub fn set_size(&mut self, width: u32, height: u32) {
@@ -448,6 +475,29 @@ impl WasmEditor {
 
         let key = event.key();
 
+        // Dispatch a KeyPressed event first so plugins observe raw
+        // input (P1-01). Handlers can inspect modifiers; they cannot
+        // yet suppress the default Rust behavior below (that hook is
+        // future work).
+        self.dispatch_event(EditorEvent::KeyPressed(KeyInfo {
+            key: key.clone(),
+            ctrl: event.ctrl_key(),
+            shift: event.shift_key(),
+            alt: event.alt_key(),
+            meta: event.meta_key(),
+        }));
+
+        // Categorize the branch that actually runs so we can dispatch a
+        // single coarse event at the end (P1-01). More granular events
+        // will follow in later phases as consumers need them.
+        #[derive(Copy, Clone, PartialEq, Eq)]
+        enum KeyEffect {
+            None,
+            Motion,
+            TextChange,
+        }
+        let mut effect = KeyEffect::None;
+
         // Handle motion with shift for selection
         let handle_motion = |state: &mut EditorState, motion: Motion, shift: bool| {
             if shift {
@@ -467,50 +517,62 @@ impl WasmEditor {
             "ArrowLeft" => {
                 handle_motion(&mut self.state, Motion::Left, self.shift_pressed);
                 event.prevent_default();
+                effect = KeyEffect::Motion;
             }
             "ArrowRight" => {
                 handle_motion(&mut self.state, Motion::Right, self.shift_pressed);
                 event.prevent_default();
+                effect = KeyEffect::Motion;
             }
             "ArrowUp" => {
                 handle_motion(&mut self.state, Motion::Up, self.shift_pressed);
                 event.prevent_default();
+                effect = KeyEffect::Motion;
             }
             "ArrowDown" => {
                 handle_motion(&mut self.state, Motion::Down, self.shift_pressed);
                 event.prevent_default();
+                effect = KeyEffect::Motion;
             }
             "Home" => {
                 handle_motion(&mut self.state, Motion::Home, self.shift_pressed);
                 event.prevent_default();
+                effect = KeyEffect::Motion;
             }
             "End" => {
                 handle_motion(&mut self.state, Motion::End, self.shift_pressed);
                 event.prevent_default();
+                effect = KeyEffect::Motion;
             }
             "PageUp" => {
                 handle_motion(&mut self.state, Motion::PageUp, self.shift_pressed);
                 event.prevent_default();
+                effect = KeyEffect::Motion;
             }
             "PageDown" => {
                 handle_motion(&mut self.state, Motion::PageDown, self.shift_pressed);
                 event.prevent_default();
+                effect = KeyEffect::Motion;
             }
             "Backspace" => {
                 self.handle_backspace();
                 event.prevent_default();
+                effect = KeyEffect::TextChange;
             }
             "Delete" => {
                 self.handle_delete();
                 event.prevent_default();
+                effect = KeyEffect::TextChange;
             }
             "Enter" => {
                 self.state.editor.action(&mut self.state.font_system, Action::Enter);
                 event.prevent_default();
+                effect = KeyEffect::TextChange;
             }
             "Tab" => {
                 self.state.editor.action(&mut self.state.font_system, Action::Indent);
                 event.prevent_default();
+                effect = KeyEffect::TextChange;
             }
             _ => {
                 // Allow Ctrl+V (paste), Ctrl+C (copy), Ctrl+X (cut) to work natively
@@ -528,6 +590,7 @@ impl WasmEditor {
                         if chars.next().is_none() {
                             self.state.editor.action(&mut self.state.font_system, Action::Insert(first_char));
                             event.prevent_default();
+                            effect = KeyEffect::TextChange;
                         }
                     }
                 }
@@ -537,6 +600,15 @@ impl WasmEditor {
         // Reset cursor blink
         self.state.cursor_visible = true;
         self.state.last_render_time = event.time_stamp();
+
+        // Fire the coarse editor event corresponding to the branch we
+        // took. `TextChange` implies the cursor also moved but we send
+        // only the strongest event to keep bus traffic sane.
+        match effect {
+            KeyEffect::None => {}
+            KeyEffect::Motion => self.dispatch_event(EditorEvent::CursorMoved),
+            KeyEffect::TextChange => self.dispatch_event(EditorEvent::TextChanged),
+        }
 
         Ok(())
     }
@@ -577,6 +649,9 @@ impl WasmEditor {
         // Reset cursor blink to show cursor is active
         self.state.cursor_visible = true;
         self.state.last_render_time = event.time_stamp();
+
+        // Notify plugins the cursor moved due to a click.
+        self.dispatch_event(EditorEvent::CursorMoved);
 
         Ok(())
     }
@@ -779,6 +854,10 @@ impl WasmEditor {
                 None,
             );
         });
+        // `set_text` is used both for programmatic edits and to seed a
+        // loaded document; the plan (P1-01) treats this as a
+        // document-load event so plugins can re-scan the buffer.
+        self.dispatch_event(EditorEvent::DocumentLoaded { name: None });
     }
 
     pub fn insert_text(&mut self, text: &str) {
@@ -786,6 +865,7 @@ impl WasmEditor {
         for ch in text.chars() {
             self.state.editor.action(&mut self.state.font_system, Action::Insert(ch));
         }
+        self.dispatch_event(EditorEvent::TextChanged);
     }
 
     pub fn get_selected_text(&self) -> JsValue {
@@ -797,6 +877,7 @@ impl WasmEditor {
 
     pub fn delete_selection(&mut self) {
         self.state.editor.action(&mut self.state.font_system, Action::Backspace);
+        self.dispatch_event(EditorEvent::TextChanged);
     }
 
     pub fn toggle_vertical(&mut self) {
@@ -827,6 +908,9 @@ impl WasmEditor {
 
             buffer.set_orientation(font_system, orientation);
         });
+
+        self.dispatch_event(EditorEvent::OrientationToggled);
+        self.dispatch_event(EditorEvent::SettingsChanged);
     }
 
     #[wasm_bindgen]
@@ -838,6 +922,7 @@ impl WasmEditor {
     pub fn set_settings_json(&mut self, json: &str) -> Result<(), JsValue> {
         let settings = EditorSettings::from_json(json)?;
         self.state.update_settings(settings);
+        self.dispatch_event(EditorEvent::SettingsChanged);
         Ok(())
     }
 
@@ -850,6 +935,7 @@ impl WasmEditor {
         let settings = EditorSettings::default();
         let json = settings.to_json()?;
         self.state.update_settings(settings);
+        self.dispatch_event(EditorEvent::SettingsChanged);
         Ok(json)
     }
 
@@ -858,6 +944,71 @@ impl WasmEditor {
     #[wasm_bindgen]
     pub fn get_default_settings_json(&self) -> Result<String, JsValue> {
         EditorSettings::default().to_json()
+    }
+
+    // ==========================================================================
+    // Plugin system: command palette bindings (P1-03)
+    // ==========================================================================
+
+    /// Returns the list of registered commands as JSON:
+    /// `[{ "id": ..., "title": ..., "category": ...|null, "keybinding": ...|null }, ...]`
+    /// The order matches plugin registration order.
+    #[wasm_bindgen]
+    pub fn list_commands(&self) -> Result<JsValue, JsValue> {
+        let arr = js_sys::Array::new();
+        for cmd in self.state.plugins.commands() {
+            let obj = js_sys::Object::new();
+            js_sys::Reflect::set(&obj, &"id".into(), &JsValue::from_str(cmd.id))?;
+            js_sys::Reflect::set(&obj, &"title".into(), &JsValue::from_str(cmd.title))?;
+            let cat = match cmd.category {
+                Some(c) => JsValue::from_str(c),
+                None => JsValue::NULL,
+            };
+            js_sys::Reflect::set(&obj, &"category".into(), &cat)?;
+            let kb = match cmd.keybinding {
+                Some(k) => JsValue::from_str(k),
+                None => JsValue::NULL,
+            };
+            js_sys::Reflect::set(&obj, &"keybinding".into(), &kb)?;
+            arr.push(&obj);
+        }
+        Ok(arr.into())
+    }
+
+    /// Invoke a registered command by id. `args_json` is opaque to the
+    /// registry and forwarded to the handler untouched; pass `""` when
+    /// unused. Returns whatever the handler returns (typically
+    /// `JsValue::NULL`).
+    ///
+    /// Errors:
+    /// * `"Unknown command: <id>"` when no command matches.
+    /// * Any error the handler itself raises.
+    #[wasm_bindgen]
+    pub fn run_command(&mut self, id: &str, args_json: &str) -> Result<JsValue, JsValue> {
+        // Copy the handler pointer out so we can release the immutable
+        // borrow on the registry before running the handler (which
+        // wants a mutable borrow of `state`).
+        let handler = match self.state.plugins.find_command(id) {
+            Some(cmd) => cmd.handler,
+            None => {
+                return Err(JsValue::from_str(&format!("Unknown command: {}", id)));
+            }
+        };
+
+        let result = {
+            let mut ctx = PluginContext::new(&mut self.state);
+            handler(&mut ctx, args_json)
+        };
+
+        // Commands may mutate anything; dispatch a coarse
+        // SettingsChanged/TextChanged pair so plugins observing state
+        // stay in sync. Cheaper than reflecting per-command intent for
+        // now; can be refined once plugins declare their side effects.
+        if result.is_ok() {
+            self.dispatch_event(EditorEvent::SettingsChanged);
+        }
+
+        result
     }
 
     #[wasm_bindgen]

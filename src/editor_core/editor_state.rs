@@ -1,5 +1,7 @@
 use cosmic_text::{Editor, FontSystem, SwashCache, Buffer, Metrics, TextOrientation, Attrs, Shaping, fontdb, Edit};
 use crate::config::settings::EditorSettings;
+use crate::editor_core::events::EventBus;
+use crate::editor_core::plugin::{CoreCommandsPlugin, PluginRegistry};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::Response;
@@ -11,6 +13,13 @@ pub struct EditorState {
     pub settings: EditorSettings,
     pub cursor_visible: bool,
     pub last_render_time: f64,
+    /// Event bus. `WasmEditor` dispatches into this after actions that
+    /// mutate observable state; plugins subscribe by being registered on
+    /// `plugins` below (the registry handles fan-out to plugins itself).
+    pub events: EventBus,
+    /// Compiled-in plugin registry. New plugins register in
+    /// `EditorState::new` so they are available before the first render.
+    pub plugins: PluginRegistry,
 }
 
 impl EditorState {
@@ -68,6 +77,11 @@ impl EditorState {
 
         let editor = Editor::new(buffer);
 
+        // Register built-in plugins. Any future built-ins go here; user
+        // plugins can be pushed onto `state.plugins` later.
+        let mut plugins = PluginRegistry::new();
+        plugins.register(Box::new(CoreCommandsPlugin));
+
         Ok(Self {
             font_system,
             cache,
@@ -75,6 +89,8 @@ impl EditorState {
             settings,
             cursor_visible: true,
             last_render_time: 0.0,
+            events: EventBus::new(),
+            plugins,
         })
     }
 

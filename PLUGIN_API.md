@@ -4,7 +4,7 @@ Status: **experimental**, Phase P1 of `prompt/FUTURE_PLAN.md`.
 
 The plugin API is compiled-in only. Plugins are Rust code that link into
 the WASM binary. There is no dynamic loading (JS/WASM/Wasm-Component)
-yet ÔÇö that is deliberately deferred until the compiled-in surface has
+yet — that is deliberately deferred until the compiled-in surface has
 been shaken out by real features in P2 and beyond.
 
 ## What a plugin can do
@@ -22,12 +22,12 @@ been shaken out by real features in P2 and beyond.
 
 ## Modules
 
-* `src/editor_core/events.rs` ÔÇö the event bus and `EditorEvent` enum.
-* `src/editor_core/plugin.rs` ÔÇö the `Plugin` trait, `PluginRegistry`,
+* `src/editor_core/events.rs` — the event bus and `EditorEvent` enum.
+* `src/editor_core/plugin.rs` — the `Plugin` trait, `PluginRegistry`,
   `PluginContext`, and the built-in `CoreCommandsPlugin`.
-* `src/lib.rs` ÔÇö WASM entry points `list_commands()` and
+* `src/lib.rs` — WASM entry points `list_commands()` and
   `run_command(id, args_json)`.
-* `index.html` ÔÇö the `CommandPalette` class (Tailwind modal, fuzzy
+* `index.html` — the `CommandPalette` class (Tailwind modal, fuzzy
   matcher, `Ctrl+Shift+P` binding).
 
 ## Event catalog
@@ -36,14 +36,14 @@ been shaken out by real features in P2 and beyond.
 
 | Variant                              | Payload                          | When it fires                                                    |
 |--------------------------------------|----------------------------------|------------------------------------------------------------------|
-| `TextChanged`                        | ÔÇö                                | After any keystroke that mutated text; `insert_text`; `delete_selection`. |
-| `CursorMoved`                        | ÔÇö                                | Motion keys; mouse click; drag.                                  |
-| `SelectionChanged`                   | ÔÇö                                | Reserved (not yet dispatched ÔÇö consumers should still handle it). |
-| `SettingsChanged`                    | ÔÇö                                | `set_settings_json`; `reset_to_defaults`; `toggle_vertical`; any `run_command`. |
+| `TextChanged`                        | —                                | After any keystroke that mutated text; `insert_text`; `delete_selection`. |
+| `CursorMoved`                        | —                                | Motion keys; mouse click; drag.                                  |
+| `SelectionChanged`                   | —                                | Reserved (not yet dispatched — consumers should still handle it). |
+| `SettingsChanged`                    | —                                | `set_settings_json`; `reset_to_defaults`; `toggle_vertical`; any `run_command`. |
 | `KeyPressed(KeyInfo)`                | `{ key, ctrl, shift, alt, meta }`| Fired at the top of `handle_key_down`, before Rust acts.         |
 | `DocumentLoaded { name }`            | optional filename                | `set_text` currently emits this with `name: None`.               |
-| `DocumentSaved { name }`             | optional filename                | Reserved (not yet dispatched ÔÇö save flow lives in JS today).     |
-| `OrientationToggled`                 | ÔÇö                                | `toggle_vertical`.                                               |
+| `DocumentSaved { name }`             | optional filename                | Reserved (not yet dispatched — save flow lives in JS today).     |
+| `OrientationToggled`                 | —                                | `toggle_vertical`.                                               |
 
 Every event is dispatched **after** the underlying state has been
 mutated. Plugins can therefore read `state.editor` and
@@ -158,14 +158,14 @@ The palette lives in `index.html`. It:
 
 If a plugin adds commands after startup (not currently possible, but
 allowed by the API shape), the palette will pick them up on its next
-open only if you also invalidate the cache ÔÇö call
+open only if you also invalidate the cache — call
 `commandPalette.commands = null` before opening.
 
 ## Known limits and open questions
 
 * **No keybinding routing.** `Command::keybinding` is a display hint
   only. Actual key handling still lives in
-  `WasmEditor::handle_key_down` (Rust) and `document.addEventListener("keydown", ÔÇª)`
+  `WasmEditor::handle_key_down` (Rust) and `document.addEventListener("keydown", …)`
   (JS). P6-01 will introduce a real key-map.
 * **Coarse events.** `handle_key_down` emits one event per keystroke
   based on which branch ran (`Motion` -> `CursorMoved`, text-mutating
@@ -181,7 +181,7 @@ open only if you also invalidate the cache ÔÇö call
   call `run_command` because the plugin registry is not borrowed
   during handler execution. Handlers that need to invoke other
   commands should look them up on `ctx.state.plugins` and call the
-  handler function pointer directly ÔÇö this is not yet a public
+  handler function pointer directly — this is not yet a public
   helper.
 
 ## Versioning
@@ -193,5 +193,5 @@ required trait methods only grow with a compatibility default.
 ## References
 
 * Plan: `prompt/FUTURE_PLAN.md`, Phase P1.
-* Phase log: `prompt/implog/PHASE_1_IMPL.md`.
+* Phase log: `DOC/IMPL/PHASE_1_IMPL.md`.
 * Patch: `patch/Phase_1.patch`.
