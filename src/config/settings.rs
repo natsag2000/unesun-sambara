@@ -82,12 +82,29 @@ impl Default for FontSettings {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct EditorBehaviorSettings {
     pub orientation: String,
+    /// Show a line-number gutter (P2-02). Left column in horizontal
+    /// mode, top strip of column numbers in vertical mode. Off by
+    /// default to keep the existing look for current users.
+    #[serde(default)]
+    pub show_line_numbers: bool,
+    /// Wrap long lines to the buffer's visible width instead of letting
+    /// them run past the edge (P2-04). On by default, matching the
+    /// existing `buffer.set_size`-driven behavior prior to this option
+    /// existing.
+    #[serde(default = "default_word_wrap")]
+    pub word_wrap: bool,
+}
+
+fn default_word_wrap() -> bool {
+    true
 }
 
 impl Default for EditorBehaviorSettings {
     fn default() -> Self {
         Self {
             orientation: "vertical".to_string(),
+            show_line_numbers: false,
+            word_wrap: true,
         }
     }
 }

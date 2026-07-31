@@ -1,7 +1,9 @@
 use cosmic_text::{Editor, FontSystem, SwashCache, Buffer, Metrics, TextOrientation, Attrs, Shaping, fontdb, Edit};
 use crate::config::settings::EditorSettings;
 use crate::editor_core::events::EventBus;
+use crate::editor_core::history::{EditKind, HistoryManager};
 use crate::editor_core::plugin::{CoreCommandsPlugin, PluginRegistry};
+use crate::plugins::find_replace::FindReplaceState;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::Response;
@@ -20,6 +22,13 @@ pub struct EditorState {
     /// Compiled-in plugin registry. New plugins register in
     /// `EditorState::new` so they are available before the first render.
     pub plugins: PluginRegistry,
+    /// Undo / redo history (P2-01). See `crate::editor_core::history`.
+    pub history: HistoryManager,
+    /// Find & replace state (P2-03). Lives here (rather than inside the
+    /// `FindReplacePlugin` struct) because command handlers are bare `fn`
+    /// pointers with no access to plugin instance state - see the note
+    /// on "plugin data slots" in `prompt/PLUGIN_API.md`.
+    pub find_replace: FindReplaceState,
 }
 
 impl EditorState {
@@ -61,6 +70,13 @@ impl EditorState {
 
         buffer.set_orientation(&mut font_system, orientation);
 
+        let wrap = if settings.editor.word_wrap {
+            cosmic_text::Wrap::WordOrGlyph
+        } else {
+            cosmic_text::Wrap::None
+        };
+        buffer.set_wrap(&mut font_system, wrap);
+
         // Load random greeting text
         let greeting_text = Self::load_random_greeting().await?;
 
@@ -81,6 +97,7 @@ impl EditorState {
         // plugins can be pushed onto `state.plugins` later.
         let mut plugins = PluginRegistry::new();
         plugins.register(Box::new(CoreCommandsPlugin));
+        plugins.register(Box::new(crate::plugins::find_replace::FindReplacePlugin));
 
         Ok(Self {
             font_system,
@@ -91,7 +108,105 @@ impl EditorState {
             last_render_time: 0.0,
             events: EventBus::new(),
             plugins,
+            history: HistoryManager::new(),
+            find_replace: FindReplaceState::new(),
         })
+    }
+
+    // ======================================================================
+    // Undo / redo (P2-01)
+    // ======================================================================
+    //
+    // cosmic-text's `Editor` accumulates a `Change` (a list of
+    // `ChangeItem`s) while a change is "in progress" (`Edit::start_change`
+    // .. `Edit::finish_change`). `begin_history_group` / `flush_history_group`
+    // decide when that window opens and closes; `HistoryManager` decides
+    // whether a given keystroke continues the current window (coalesced
+    // typing) or starts a new one. See `crate::editor_core::history` for
+    // the full rationale.
+
+    /// Call before performing a mutating action of `kind` at time `now`
+    /// (typically `event.time_stamp()`). Flushes the previous group first
+    /// if this keystroke starts a new one, then ensures a change is being
+    /// collected so the upcoming `Action::*` / `insert_at` / `delete_range`
+    /// calls are recorded.
+    pub fn begin_history_group(&mut self, kind: EditKind, now: f64) {
+        if self.history.is_new_group(kind, now) {
+            self.flush_history_group();
+            self.history.begin_group(kind, now);
+        } else {
+            self.history.touch(now);
+        }
+        self.editor.start_change();
+    }
+
+    /// End whatever change is currently being collected (if any) and
+    /// commit it to the undo stack. Safe to call even if no change is in
+    /// progress. Call this before any action that should *not* be
+    /// coalesced with subsequent typing (cursor motion, mouse clicks,
+    /// undo/redo itself, loading a new document, ...).
+    pub fn flush_history_group(&mut self) {
+        if let Some(change) = self.editor.finish_change() {
+            self.history.commit(change);
+        }
+        self.history.end_group();
+    }
+
+    /// Undo the most recent change. Returns `true` if something was
+    /// undone.
+    pub fn undo(&mut self) -> bool {
+        self.flush_history_group();
+        let Some(change) = self.history.pop_undo() else {
+            return false;
+        };
+        let mut reversed = change.clone();
+        reversed.reverse();
+        self.editor.apply_change(&reversed);
+        self.history.push_redo(change);
+        true
+    }
+
+    /// Redo the most recently undone change. Returns `true` if something
+    /// was redone.
+    pub fn redo(&mut self) -> bool {
+        self.flush_history_group();
+        let Some(change) = self.history.pop_redo() else {
+            return false;
+        };
+        self.editor.apply_change(&change);
+        self.history.push_undo(change);
+        true
+    }
+
+    pub fn can_undo(&self) -> bool {
+        self.history.can_undo()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.history.can_redo()
+    }
+
+    /// Discard all undo/redo history. Called when a brand new document
+    /// replaces the buffer contents (`WasmEditor::set_text`) - undoing
+    /// "past" a freshly loaded document has no sensible meaning.
+    pub fn discard_history(&mut self) {
+        // Drop any change collected against the *old* text; applying it
+        // later would operate on stale line indices.
+        let _ = self.editor.finish_change();
+        self.history.clear();
+    }
+
+    // ======================================================================
+    // Find & replace (P2-03)
+    // ======================================================================
+
+    /// Re-run the current find query against the buffer's live text.
+    /// Call after any text mutation that might invalidate previously
+    /// computed match offsets (typing, replace, undo/redo, document
+    /// load).
+    pub fn refresh_find_matches(&mut self) {
+        let find_replace = &mut self.find_replace;
+        self.editor.with_buffer(|buffer| find_replace.search(buffer));
     }
 
     pub fn update_settings(&mut self, settings: EditorSettings) {
@@ -153,6 +268,19 @@ impl EditorState {
                     line.reset_shaping();
                 }
                 buffer.set_orientation(&mut self.font_system, orientation);
+            });
+        }
+
+        // Update word wrap if changed (P2-04).
+        if self.settings.editor.word_wrap != settings.editor.word_wrap {
+            let wrap = if settings.editor.word_wrap {
+                cosmic_text::Wrap::WordOrGlyph
+            } else {
+                cosmic_text::Wrap::None
+            };
+            let font_system = &mut self.font_system;
+            self.editor.with_buffer_mut(move |buffer| {
+                buffer.set_wrap(font_system, wrap);
             });
         }
 

@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>unesun sambarA - Mongolian Text Editor</title>
-    <link rel="stylesheet" href="dist/output.css?v=9" />
+    <link rel="stylesheet" href="dist/output.css?v=10" />
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0"
@@ -325,6 +325,33 @@
         class="bg-red-400 text-editor-bg px-5 py-1 text-[10px] hidden"
       ></div>
 
+      <!--
+        Auto-save recovery banner (Phase P2-05). Shown once on startup
+        when a newer localStorage draft exists than what's currently
+        loaded (i.e. the previous session ended without an explicit
+        Save). Non-blocking: the editor is usable while it's visible.
+      -->
+      <div
+        id="autosave-banner"
+        class="bg-amber-500 text-editor-header px-5 py-1.5 text-xs hidden items-center justify-between gap-3"
+      >
+        <span id="autosave-banner-message">Unsaved draft found from a previous session.</span>
+        <div class="flex gap-2 shrink-0">
+          <button
+            id="autosave-restore-btn"
+            class="bg-editor-header text-white px-3 py-1 rounded text-xs hover:bg-gray-700 transition-colors"
+          >
+            Restore
+          </button>
+          <button
+            id="autosave-dismiss-btn"
+            class="bg-transparent border border-editor-header px-3 py-1 rounded text-xs hover:bg-black hover:bg-opacity-10 transition-colors"
+          >
+            Dismiss
+          </button>
+        </div>
+      </div>
+
       <div
         id="canvas-container"
         class="flex-1 relative overflow-hidden bg-editor-bg"
@@ -338,6 +365,86 @@
           ></div>
           <p>Loading unesun sambarA</p>
         </div>
+
+        <!--
+          Find & Replace panel (Phase P2-03). Slides down from the top of
+          the canvas area. Backed by the `editor.find.*` commands
+          contributed by `FindReplacePlugin` (`src/plugins/find_replace.rs`),
+          invoked via `editor.run_command(id, args_json)`.
+        -->
+        <div
+          id="find-panel"
+          class="absolute top-0 left-0 right-0 z-40 bg-editor-header border-b border-editor-border shadow-lg hidden"
+        >
+          <div class="flex flex-wrap items-center gap-2 px-3 py-2">
+            <input
+              id="find-input"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Find"
+              class="flex-1 min-w-[120px] bg-editor-bg text-editor-text border border-editor-border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-editor-accent"
+            />
+            <span id="find-count" class="text-xs text-editor-text opacity-80 whitespace-nowrap px-1"
+              >0/0</span
+            >
+            <button
+              id="find-prev-btn"
+              class="toolbar-btn flex"
+              style="width: 32px; height: 32px; font-size: 16px"
+              title="Previous match (Shift+F3)"
+            >
+              <span class="material-symbols-rounded" style="font-size: 18px">arrow_upward</span>
+            </button>
+            <button
+              id="find-next-btn"
+              class="toolbar-btn flex"
+              style="width: 32px; height: 32px; font-size: 16px"
+              title="Next match (F3)"
+            >
+              <span class="material-symbols-rounded" style="font-size: 18px">arrow_downward</span>
+            </button>
+            <label class="flex items-center gap-1 text-xs text-editor-text whitespace-nowrap" title="Case sensitive">
+              <input type="checkbox" id="find-case-sensitive" class="accent-editor-accent" /> Aa
+            </label>
+            <label class="flex items-center gap-1 text-xs text-editor-text whitespace-nowrap" title="Whole word">
+              <input type="checkbox" id="find-whole-word" class="accent-editor-accent" /> Word
+            </label>
+            <label class="flex items-center gap-1 text-xs text-editor-text whitespace-nowrap" title="Regular expression">
+              <input type="checkbox" id="find-use-regex" class="accent-editor-accent" /> .*
+            </label>
+            <button
+              id="find-close-btn"
+              class="text-editor-text hover:text-white text-2xl leading-none px-1"
+              title="Close (Esc)"
+            >
+              &times;
+            </button>
+          </div>
+          <div id="find-replace-row" class="flex flex-wrap items-center gap-2 px-3 pb-2 hidden">
+            <input
+              id="replace-input"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Replace"
+              class="flex-1 min-w-[120px] bg-editor-bg text-editor-text border border-editor-border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-editor-accent"
+            />
+            <button
+              id="replace-one-btn"
+              class="bg-editor-accent text-white px-3 py-1.5 rounded text-xs hover:bg-blue-600 active:bg-blue-700 transition-colors whitespace-nowrap"
+            >
+              Replace
+            </button>
+            <button
+              id="replace-all-btn"
+              class="bg-editor-accent text-white px-3 py-1.5 rounded text-xs hover:bg-blue-600 active:bg-blue-700 transition-colors whitespace-nowrap"
+            >
+              Replace All
+            </button>
+          </div>
+        </div>
+
         <canvas
           id="editor-canvas"
           class="block w-full h-full cursor-text"
@@ -402,6 +509,12 @@
             class="settings-tab flex-1 px-6 py-3 text-sm font-medium text-editor-text hover:text-white hover:bg-editor-bg transition-colors border-b-2 border-transparent"
           >
             Color
+          </button>
+          <button
+            id="editor-tab-btn"
+            class="settings-tab flex-1 px-6 py-3 text-sm font-medium text-editor-text hover:text-white hover:bg-editor-bg transition-colors border-b-2 border-transparent"
+          >
+            Editor
           </button>
         </div>
 
@@ -606,6 +719,43 @@
                   />
                 </div>
               </div>
+            </div>
+          </div>
+
+          <!-- Editor Tab (P2-02, P2-04) -->
+          <div id="editor-tab" class="settings-tab-content p-6 hidden">
+            <div class="space-y-4">
+              <label
+                class="flex items-center justify-between gap-3 bg-editor-bg border border-editor-border rounded px-4 py-3 cursor-pointer"
+              >
+                <span>
+                  <span class="block text-sm text-editor-text">Show line numbers</span>
+                  <span class="block text-xs text-editor-text opacity-70"
+                    >Left gutter in horizontal mode, top strip of column numbers in vertical mode</span
+                  >
+                </span>
+                <input
+                  type="checkbox"
+                  id="show-line-numbers"
+                  class="w-5 h-5 accent-editor-accent"
+                />
+              </label>
+
+              <label
+                class="flex items-center justify-between gap-3 bg-editor-bg border border-editor-border rounded px-4 py-3 cursor-pointer"
+              >
+                <span>
+                  <span class="block text-sm text-editor-text">Word wrap</span>
+                  <span class="block text-xs text-editor-text opacity-70"
+                    >Wrap long lines to fit the visible width instead of scrolling</span
+                  >
+                </span>
+                <input
+                  type="checkbox"
+                  id="word-wrap"
+                  class="w-5 h-5 accent-editor-accent"
+                />
+              </label>
             </div>
           </div>
         </div>
@@ -851,7 +1001,7 @@
     </div>
 
     <script type="module">
-      import init, { WasmEditor } from "./pkg/uns_editor.js?v=5";
+      import init, { WasmEditor } from "./pkg/uns_editor.js?v=6";
 
       let editor = null;
       let animationId = null;
@@ -860,6 +1010,12 @@
       let renderPaused = false;
 
       let errorTimeout = null;
+
+      // P2-05: auto-save manager, created once the editor is ready. Kept
+      // at module scope (like `editor`) so `FileManager` can clear the
+      // draft after an explicit save/open without needing a constructor
+      // dependency on it.
+      let autoSaveManager = null;
 
       // Mongolian Unicode code point names (U+1800 to U+18AA)
       const mongolianCodepoints = {
@@ -1238,6 +1394,8 @@
             textColorHex: document.getElementById("text-color-hex"),
             backgroundColor: document.getElementById("background-color"),
             backgroundColorHex: document.getElementById("background-color-hex"),
+            showLineNumbers: document.getElementById("show-line-numbers"),
+            wordWrap: document.getElementById("word-wrap"),
           };
 
           this.buttons = {
@@ -1251,8 +1409,10 @@
           this.tabs = {
             fontBtn: document.getElementById("font-tab-btn"),
             colorBtn: document.getElementById("color-tab-btn"),
+            editorBtn: document.getElementById("editor-tab-btn"),
             fontPanel: document.getElementById("font-tab"),
             colorPanel: document.getElementById("color-tab"),
+            editorPanel: document.getElementById("editor-tab"),
           };
         }
 
@@ -1275,6 +1435,7 @@
           // Tab switching
           addHandler(this.tabs.fontBtn, () => this.switchTab("font"));
           addHandler(this.tabs.colorBtn, () => this.switchTab("color"));
+          addHandler(this.tabs.editorBtn, () => this.switchTab("editor"));
 
           // Helper function to update font size from any control
           const updateFontSize = (size) => {
@@ -1404,8 +1565,10 @@
           // Remove active class from all tabs and panels
           this.tabs.fontBtn.classList.remove("active");
           this.tabs.colorBtn.classList.remove("active");
+          this.tabs.editorBtn.classList.remove("active");
           this.tabs.fontPanel.classList.remove("active");
           this.tabs.colorPanel.classList.remove("active");
+          this.tabs.editorPanel.classList.remove("active");
 
           // Add active class to selected tab and panel
           if (tabName === "font") {
@@ -1414,6 +1577,9 @@
           } else if (tabName === "color") {
             this.tabs.colorBtn.classList.add("active");
             this.tabs.colorPanel.classList.add("active");
+          } else if (tabName === "editor") {
+            this.tabs.editorBtn.classList.add("active");
+            this.tabs.editorPanel.classList.add("active");
           }
         }
 
@@ -1462,6 +1628,9 @@
               settings.appearance.text_color;
             this.elements.fontPreview.style.backgroundColor =
               settings.appearance.background_color;
+
+            this.elements.showLineNumbers.checked = !!settings.editor.show_line_numbers;
+            this.elements.wordWrap.checked = settings.editor.word_wrap !== false;
           } catch (e) {
             console.error("Failed to load settings:", e);
           }
@@ -1492,6 +1661,8 @@
               },
               editor: {
                 ...current.editor,
+                show_line_numbers: this.elements.showLineNumbers.checked,
+                word_wrap: this.elements.wordWrap.checked,
               },
             };
 
@@ -1522,6 +1693,92 @@
       }
 
       // File Operations Management
+      // Auto-save draft to localStorage (Phase P2-05).
+      //
+      // Polls the live text every `POLL_MS` and writes a draft (only when
+      // the text actually changed since the last poll - this is what
+      // gives us "debounced" saves without needing a dedicated
+      // "text changed" event hook from Rust: a change followed by a
+      // pause of at least one poll interval settles into exactly one
+      // write). `FileManager` calls `clearDraft()` after every explicit
+      // save/open, so a draft surviving to the next page load means the
+      // previous session ended without one - exactly the "recover
+      // unsaved work" case the recovery banner handles.
+      class AutoSave {
+        static DRAFT_KEY = "uns-editor-autosave-draft";
+        static POLL_MS = 3000;
+
+        constructor(editor) {
+          this.editor = editor;
+          this.lastSavedText = null;
+          this.timer = null;
+        }
+
+        start() {
+          if (this.timer) return;
+          this.timer = setInterval(() => this.maybeSave(), AutoSave.POLL_MS);
+        }
+
+        stop() {
+          if (this.timer) {
+            clearInterval(this.timer);
+            this.timer = null;
+          }
+        }
+
+        maybeSave() {
+          if (!this.editor) return;
+          let text;
+          try {
+            text = this.editor.get_text();
+          } catch (e) {
+            return;
+          }
+          if (text === this.lastSavedText) return;
+          this.lastSavedText = text;
+
+          try {
+            const draft = {
+              text,
+              settings: this.editor.get_settings_json(),
+              cursor: this.editor.get_cursor_position(),
+              timestamp: Date.now(),
+            };
+            localStorage.setItem(AutoSave.DRAFT_KEY, JSON.stringify(draft));
+          } catch (e) {
+            // Quota exceeded or similar - auto-save is a convenience, not
+            // a guarantee, so fail silently rather than interrupting
+            // editing.
+            console.error("Auto-save failed:", e);
+          }
+        }
+
+        readDraft() {
+          const raw = localStorage.getItem(AutoSave.DRAFT_KEY);
+          if (!raw) return null;
+          try {
+            const draft = JSON.parse(raw);
+            if (!draft || typeof draft.text !== "string" || !draft.text.trim()) {
+              return null;
+            }
+            return draft;
+          } catch (e) {
+            return null;
+          }
+        }
+
+        clearDraft() {
+          localStorage.removeItem(AutoSave.DRAFT_KEY);
+          // Re-baseline so the next edit is picked up as "changed" even
+          // if it happens to match whatever was in the draft.
+          try {
+            this.lastSavedText = this.editor ? this.editor.get_text() : null;
+          } catch (e) {
+            this.lastSavedText = null;
+          }
+        }
+      }
+
       class FileManager {
         constructor(editor) {
           this.editor = editor;
@@ -1720,6 +1977,7 @@
             const filename = this.generateFilename("txt");
             this.downloadBlob(blob, filename);
             this.closeSaveModal();
+            if (autoSaveManager) autoSaveManager.clearDraft();
             updateStatus(`Saved as ${filename}`);
           } catch (e) {
             console.error("Save TXT error:", e);
@@ -1760,6 +2018,7 @@
             const filename = this.generateFilename("uns");
             this.downloadBlob(blob, filename);
             this.closeSaveModal();
+            if (autoSaveManager) autoSaveManager.clearDraft();
             updateStatus(`Saved as ${filename}`);
           } catch (e) {
             console.error("Save UNS error:", e);
@@ -1859,6 +2118,7 @@
         loadTxtFile(text, filename) {
           // Simple: just set the text, keep current settings
           this.editor.set_text(text);
+          if (autoSaveManager) autoSaveManager.clearDraft();
           updateStatus(`Opened ${filename} (plain text)`);
         }
 
@@ -1904,6 +2164,7 @@
               }
             }
 
+            if (autoSaveManager) autoSaveManager.clearDraft();
             updateStatus(`Opened ${filename} (with settings)`);
 
             // Log metadata for debugging
@@ -2408,6 +2669,183 @@
         }
       }
 
+      // Find & Replace panel (Phase P2-03). Talks to the Rust
+      // `FindReplacePlugin` (`src/plugins/find_replace.rs`) exclusively
+      // through `editor.run_command(id, args_json)` - no dedicated WASM
+      // methods were needed since the plugin command surface already
+      // covers everything the panel does.
+      class FindReplacePanel {
+        constructor(editor) {
+          this.editor = editor;
+          this.panel = document.getElementById("find-panel");
+          this.replaceRow = document.getElementById("find-replace-row");
+          this.findInput = document.getElementById("find-input");
+          this.replaceInput = document.getElementById("replace-input");
+          this.countEl = document.getElementById("find-count");
+          this.caseSensitive = document.getElementById("find-case-sensitive");
+          this.wholeWord = document.getElementById("find-whole-word");
+          this.useRegex = document.getElementById("find-use-regex");
+
+          const setup = (id, handler) => {
+            const button = document.getElementById(id);
+            button.addEventListener("click", handler);
+          };
+          setup("find-prev-btn", () => this.prev());
+          setup("find-next-btn", () => this.next());
+          setup("find-close-btn", () => this.close());
+          setup("replace-one-btn", () => this.replaceOne());
+          setup("replace-all-btn", () => this.replaceAll());
+
+          this.findInput.addEventListener("input", () => this.onQueryChanged());
+          this.caseSensitive.addEventListener("change", () => this.onQueryChanged());
+          this.wholeWord.addEventListener("change", () => this.onQueryChanged());
+          this.useRegex.addEventListener("change", () => this.onQueryChanged());
+          this.replaceInput.addEventListener("input", () => this.onQueryChanged());
+
+          this.findInput.addEventListener("keydown", (e) => this.onKeyDown(e));
+          this.replaceInput.addEventListener("keydown", (e) => this.onKeyDown(e));
+        }
+
+        isOpen() {
+          return !this.panel.classList.contains("hidden");
+        }
+
+        open(withReplace) {
+          this.panel.classList.remove("hidden");
+          if (withReplace) {
+            this.replaceRow.classList.remove("hidden");
+          }
+          const focusTarget = withReplace && this.findInput.value ? this.replaceInput : this.findInput;
+          setTimeout(() => {
+            focusTarget.focus();
+            focusTarget.select();
+          }, 0);
+          if (this.findInput.value) {
+            this.onQueryChanged();
+          }
+        }
+
+        showReplace() {
+          this.replaceRow.classList.remove("hidden");
+          setTimeout(() => this.replaceInput.focus(), 0);
+        }
+
+        close() {
+          this.panel.classList.add("hidden");
+          this.replaceRow.classList.add("hidden");
+          try {
+            this.editor.run_command("editor.find.clear", "");
+          } catch (e) {
+            console.error("find.clear failed:", e);
+          }
+          this.countEl.textContent = "0/0";
+          const canvas = document.getElementById("editor-canvas");
+          if (canvas) canvas.focus();
+        }
+
+        args() {
+          return JSON.stringify({
+            query: this.findInput.value,
+            replacement: this.replaceInput.value,
+            case_sensitive: this.caseSensitive.checked,
+            whole_word: this.wholeWord.checked,
+            use_regex: this.useRegex.checked,
+          });
+        }
+
+        onQueryChanged() {
+          try {
+            const raw = this.editor.run_command("editor.find.setQuery", this.args());
+            this.updateCount(raw);
+          } catch (e) {
+            console.error("find.setQuery failed:", e);
+          }
+        }
+
+        updateCount(raw) {
+          let summary;
+          try {
+            summary = JSON.parse(raw);
+          } catch (e) {
+            summary = { count: 0, current: null, error: null };
+          }
+          if (summary.error) {
+            this.countEl.textContent = "Invalid regex";
+          } else if (summary.count === 0) {
+            this.countEl.textContent = "0/0";
+          } else {
+            this.countEl.textContent = `${summary.current + 1}/${summary.count}`;
+          }
+        }
+
+        next() {
+          try {
+            this.updateCount(this.editor.run_command("editor.find.next", ""));
+          } catch (e) {
+            console.error("find.next failed:", e);
+          }
+        }
+
+        prev() {
+          try {
+            this.updateCount(this.editor.run_command("editor.find.prev", ""));
+          } catch (e) {
+            console.error("find.prev failed:", e);
+          }
+        }
+
+        replaceOne() {
+          try {
+            const raw = this.editor.run_command("editor.find.replaceCurrent", this.args());
+            this.updateCount(raw);
+            updateStatus("Replaced 1 occurrence");
+          } catch (e) {
+            console.error("find.replaceCurrent failed:", e);
+          }
+        }
+
+        replaceAll() {
+          try {
+            const raw = this.editor.run_command("editor.find.replaceAll", this.args());
+            const summary = JSON.parse(raw);
+            this.updateCount(raw);
+            updateStatus(`Replaced ${summary.replaced} occurrence(s)`);
+          } catch (e) {
+            console.error("find.replaceAll failed:", e);
+          }
+        }
+
+        onKeyDown(e) {
+          // Fully handled here; stop the document-level shortcut handler
+          // (Escape / F3) from acting on the same keystroke a second time.
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            this.close();
+            return;
+          }
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.shiftKey) {
+              this.prev();
+            } else {
+              this.next();
+            }
+            return;
+          }
+          if (e.key === "F3") {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.shiftKey) {
+              this.prev();
+            } else {
+              this.next();
+            }
+          }
+        }
+      }
+
       async function main() {
         try {
           // Detect mobile device first (needed throughout initialization)
@@ -2421,7 +2859,7 @@
           let bufferedFormatControl = null; // Buffer for U+202F or U+180E
 
           // Initialize WASM with cache-busting parameter
-          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=5" });
+          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=6" });
 
           // Setup canvas
           const { width, height } = resizeCanvas();
@@ -2460,6 +2898,58 @@
           // Initialize command palette (Phase P1-03)
           const commandPalette = new CommandPalette(editor);
 
+          // Initialize find & replace panel (Phase P2-03)
+          const findReplacePanel = new FindReplacePanel(editor);
+
+          // Initialize auto-save and offer draft recovery (Phase P2-05).
+          // Must run after settings are loaded (above) so a restored
+          // draft's own settings - if the user accepts - are applied on
+          // top of, rather than before, the persisted ones.
+          autoSaveManager = new AutoSave(editor);
+          const draft = autoSaveManager.readDraft();
+          if (draft) {
+            const banner = document.getElementById("autosave-banner");
+            const message = document.getElementById("autosave-banner-message");
+            const restoreBtn = document.getElementById("autosave-restore-btn");
+            const dismissBtn = document.getElementById("autosave-dismiss-btn");
+
+            const when = new Date(draft.timestamp);
+            message.textContent = `Unsaved draft found from ${when.toLocaleString()}.`;
+            banner.classList.remove("hidden");
+            banner.classList.add("flex");
+
+            const hideBanner = () => {
+              banner.classList.add("hidden");
+              banner.classList.remove("flex");
+            };
+
+            restoreBtn.addEventListener("click", () => {
+              try {
+                editor.set_text(draft.text);
+                if (draft.settings) {
+                  editor.set_settings_json(draft.settings);
+                  localStorage.setItem("uns-editor-settings", draft.settings);
+                }
+                if (draft.cursor) {
+                  editor.set_cursor_position(draft.cursor.line, draft.cursor.column);
+                }
+                updateStatus("Draft restored");
+              } catch (e) {
+                console.error("Failed to restore draft:", e);
+                showError("Failed to restore draft: " + e.message);
+              } finally {
+                autoSaveManager.clearDraft();
+                hideBanner();
+              }
+            });
+
+            dismissBtn.addEventListener("click", () => {
+              autoSaveManager.clearDraft();
+              hideBanner();
+            });
+          }
+          autoSaveManager.start();
+
           // Keyboard shortcuts for save/open
           document.addEventListener("keydown", (e) => {
             // Ctrl+Shift+P - Open command palette (Phase P1-03)
@@ -2470,6 +2960,33 @@
             ) {
               e.preventDefault();
               commandPalette.open();
+              return;
+            }
+
+            // Ctrl+F / Cmd+F - Open find panel (Phase P2-03)
+            if ((e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F")) {
+              e.preventDefault();
+              findReplacePanel.open(false);
+              return;
+            }
+
+            // Ctrl+H / Cmd+H (or Cmd+Option+F on macOS convention) - Open
+            // find panel with replace row visible.
+            if ((e.ctrlKey || e.metaKey) && (e.key === "h" || e.key === "H")) {
+              e.preventDefault();
+              findReplacePanel.open(true);
+              return;
+            }
+
+            // F3 / Shift+F3 - Next / previous match, even when focus is
+            // on the canvas rather than the find input.
+            if (e.key === "F3" && findReplacePanel.isOpen()) {
+              e.preventDefault();
+              if (e.shiftKey) {
+                findReplacePanel.prev();
+              } else {
+                findReplacePanel.next();
+              }
               return;
             }
 
@@ -2521,6 +3038,13 @@
               !fileManager.saveModal.classList.contains("hidden")
             ) {
               fileManager.closeSaveModal();
+            }
+
+            // Escape - Close find & replace panel (only when focus isn't
+            // already inside it - its own keydown handler covers that
+            // case and calls close() directly).
+            if (e.key === "Escape" && findReplacePanel.isOpen()) {
+              findReplacePanel.close();
             }
           });
 
