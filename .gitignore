@@ -22,5 +22,11 @@ pkg/
 # node_modules
 node_modules
 
+# Playwright (P7-04) - test run artifacts, not source
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
 # prompts
 # prompt/

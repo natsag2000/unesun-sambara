@@ -180,11 +180,11 @@ Impl log: [`DOC/IMPL/PHASE_4_IMPL.md`](../DOC/IMPL/PHASE_4_IMPL.md) · Patch: `p
 - **P7-02** `[ ]` **S** — WASM size pass
   - `wasm-opt` is disabled in `Cargo.toml`. Enable it, add a `wasm-strip`/`--strip-all` step to `build.sh` and `build.bat`, and record before/after sizes.
 
-- **P7-03** `[ ]` **M** — Rust unit tests
-  - Extract the format-control decision logic from `handle_backspace` and `handle_delete` into pure functions and cover them with `#[cfg(test)]` tests. Settings serialization round-trip tests.
+- **P7-03** `[~]` **M** — Rust unit tests
+  - Settings serialization round-trip tests landed as a side effect of P4-01's alpha-preserving `color_serde` fix (`src/config/settings.rs`). The format-control `handle_backspace`/`handle_delete` extraction-into-pure-functions is still outstanding — hence `[~]` rather than `[x]`.
 
-- **P7-04** `[ ]` **S** — Playwright smoke test
-  - End-to-end: load page, type text, toggle orientation, open settings, save, reload, assert content and settings survived. Run headless in CI.
+- **P7-04** `[x]` **S** — Playwright smoke test
+  - Impl log: [`DOC/IMPL/PHASE_7_04_IMPL.md`](../DOC/IMPL/PHASE_7_04_IMPL.md) · Patch: `patch/Phase_7_04.patch`. Done ahead of the suggested order, at the user's request, specifically so P8-03 could be built with real automated browser verification. `tests/e2e/smoke.spec.js` covers the full checklist (type, toggle orientation, settings save, reload, content + settings survive) against a real headless Chromium installed in this environment — confirmed to both pass on the real app and fail when deliberately broken. Wired into a new `.github/workflows/e2e.yml` (added proactively; not executed on a real runner yet, only syntax-validated). Uses a small read-only `window.__unsTestHooks` seam in `index.html` since the editor renders to `<canvas>` with no DOM text to assert against otherwise.
 
 ---
 
@@ -211,7 +211,9 @@ Items inherited from the original `IMPLEMENTATION_SUMMARY.md` deferred list, plu
 2. ~~**Phase P1** plugin architecture~~ — done (commit `f546125`).
 3. ~~**P2-01 undo**, **P2-02 line numbers**, **P2-03 find and replace**, **P2-05 auto-save**, **P2-04 word wrap**~~ — done (all of Phase P2 shipped together; see `DOC/IMPL/PHASE_2_IMPL.md`).
 4. ~~**Phase P4 themes**, **P8-04 zoom**, **P5-02 dirty indicator**~~ — done (see `DOC/IMPL/PHASE_4_IMPL.md`).
-5. **Phase P6 keybindings**, **P3-03 Latin-map editor**, **Phase P7** performance and tests. Power-user and quality. **← next.**
+5. ~~**P7-04 Playwright smoke test**~~ — done out of order, at the user's explicit request (see `DOC/IMPL/PHASE_7_04_IMPL.md`), ahead of P8-03 so tabs could be built with real browser verification.
+6. **P8-03 multiple documents / tab strip** — user's explicit next priority, also out of the original suggested order. **← next.**
+7. **Phase P6 keybindings**, **P3-03 Latin-map editor**, remainder of **Phase P7** performance and tests. Power-user and quality.
 
 ## Open questions (resolutions recorded)
 
@@ -220,6 +222,10 @@ Items inherited from the original `IMPLEMENTATION_SUMMARY.md` deferred list, plu
 3. **Backlog adjustments.** — No adjustments requested through P1. Any additions/removals should be captured here with a rationale as they come up.
 4. **P2 scope: all five items in one session, or split?** — **Resolved (all five together).** The user chose to do all of P2-01..P2-05 in one pass, with typing debounced into coalesced undo entries (rather than one undo step per keystroke). No further scope splits were requested.
 5. **P4/P8-04/P5-02 scope: all together, or split?** — **Resolved (all together).** Same pattern as P2. Two sub-decisions recorded: (a) themes cover colors only, not fonts, and "Default Light" reproduces the existing P0-01 default exactly; (b) the dirty indicator also confirms before Open/Clear discard unsaved changes (an extension beyond the plan's literal "dot + beforeunload" text), not just the passive dot + browser warning.
+6. **Re-prioritizing P7-04 and P8-03 ahead of the suggested order.** — **Resolved.** The user asked for these two specifically, calling them the most important remaining items, and asked for P7-04 first "so P8-03 could get real test coverage." Agreed and executed in that order, as two separate commits/patches/impl-logs (not bundled, unlike the P2 and P4 batches) per explicit request.
+7. **P8-03 architecture: JS-level tabs on one shared `WasmEditor`, vs. per-tab state in Rust.** — **Resolved (JS-level/lightweight).** Chosen specifically to avoid a large, risky refactor of `lib.rs` (which assumes one document throughout) so soon after P2/P4/P5 shipped. Trade-off accepted: undo/redo and find/replace state reset when switching tabs (same as opening a file already does today), not preserved per-tab.
+8. **P8-03: does Open File create a new tab or replace the active one?** — **Resolved (new tab).** Matches how most tabbed editors behave; also makes the P5-02 "confirm before Open discards work" guard unnecessary for Open specifically (nothing is discarded any more), though it stays for Clear Document.
+9. **P8-03: do tabs persist across a reload?** — **Resolved (yes, all open tabs).** This supersedes the P2-05 single-document auto-save draft + recovery banner: instead of prompting "restore an old draft?", every tab's content is continuously persisted and the whole tab strip reappears silently on reload. `tests/e2e/smoke.spec.js` (P7-04) targets the pre-P8-03 banner behavior and needs updating once this lands - tracked explicitly, not forgotten.
 
 ## Resuming after a context loss
 

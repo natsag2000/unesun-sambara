@@ -4,9 +4,11 @@
   "scripts": {
     "build:css": "tailwindcss -i ./src/styles.css -o ./dist/output.css --minify",
     "watch:css": "tailwindcss -i ./src/styles.css -o ./dist/output.css --watch",
-    "prepare:dict": "node scripts/prepare-dictionary.js"
+    "prepare:dict": "node scripts/prepare-dictionary.js",
+    "test:e2e": "playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "tailwindcss": "^3.4.0",
     "xz-decompress": "^0.2.3"
   }

@@ -3558,6 +3558,25 @@
             }
           });
 
+          // Test seam (Phase P7-04). Read-only accessors for the
+          // Playwright smoke test (`tests/e2e/smoke.spec.js`) - the
+          // editor renders to a `<canvas>`, so there is no DOM text to
+          // assert against otherwise. Exposes nothing not already
+          // reachable via the same public WASM methods the app itself
+          // calls (`get_text`, `get_settings_json`,
+          // `get_cursor_position`); this is not a new capability, just a
+          // shortcut around scraping canvas pixels. Always present
+          // (not gated behind a query param) since there is no
+          // authentication or server-side state in this app for it to
+          // put at risk.
+          window.__unsTestHooks = {
+            getText: () => editor?.get_text() ?? null,
+            getSettings: () =>
+              editor ? JSON.parse(editor.get_settings_json()) : null,
+            getCursor: () => editor?.get_cursor_position() ?? null,
+            isReady: () => !!editor,
+          };
+
           // Hide loading
           document.getElementById("loading").classList.add("hidden");
           hideError();
