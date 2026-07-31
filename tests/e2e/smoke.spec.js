@@ -4,13 +4,13 @@
 // the page, type text, toggle orientation, open settings and save, then
 // reload and assert both content and settings survived.
 //
-// "Content surviving a reload" currently means the P2-05 auto-save
-// draft + recovery banner (nothing is explicitly saved to a file in
-// this test) - that mechanism is expected to be superseded by
-// multi-tab session persistence in Phase P8-03, at which point this
-// test's reload/content-recovery assertions should be updated to match
-// (tabs reappearing silently) rather than a banner requiring a click.
-// See DOC/IMPL/PHASE_7_04_IMPL.md.
+// "Content surviving a reload" means Phase P8-03's multi-tab session
+// persistence (`TabManager`): every open tab's content is continuously
+// saved to localStorage and the whole tab strip reappears silently on
+// reload - no "restore this draft?" banner to click through, unlike
+// the P2-05 single-document auto-save mechanism this test originally
+// exercised (see DOC/IMPL/PHASE_7_04_IMPL.md's "Follow-ups" and
+// DOC/IMPL/PHASE_8_03_IMPL.md for why that changed).
 //
 // Assertions on document text/settings go through
 // `window.__unsTestHooks` (added in `index.html` for this test) rather
@@ -81,9 +81,9 @@ test.describe("UNS editor smoke test", () => {
     // above.
     expect(settings.editor.orientation).toBe("horizontal");
 
-    // Give the P2-05 auto-save poll (every 3s) at least one chance to
-    // write a draft before reloading.
-    await page.waitForTimeout(3500);
+    // Give the P8-03 tab poll (every 2s) at least one chance to persist
+    // the active tab before reloading.
+    await page.waitForTimeout(2500);
 
     await page.reload();
     await waitForReady(page);
@@ -94,14 +94,9 @@ test.describe("UNS editor smoke test", () => {
     expect(settings.fonts.font_size).toBe(60);
     expect(settings.editor.orientation).toBe("horizontal");
 
-    // Content: the auto-save draft banner should offer recovery, since
-    // the typed text was never explicitly saved to a file.
-    const banner = page.locator("#autosave-banner");
-    await expect(banner).toBeVisible();
-
-    await page.locator("#autosave-restore-btn").click();
-    await expect(banner).toBeHidden();
-
+    // Content: the tab's text is restored silently - no banner, no
+    // click required (P8-03 superseded the P2-05 recovery banner this
+    // test used to exercise here).
     await expect
       .poll(() => page.evaluate(() => window.__unsTestHooks.getText().trim()))
       .toBe("Hello Playwright");

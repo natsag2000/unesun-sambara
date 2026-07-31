@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>unesun sambarA - Mongolian Text Editor</title>
-    <link rel="stylesheet" href="dist/output.css?v=11" />
+    <link rel="stylesheet" href="dist/output.css?v=12" />
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0"
@@ -212,14 +212,16 @@
             title="Version Information"
           />
           <!--
-            Dirty indicator (Phase P5-02). Shown when the current text
-            differs from the last explicitly-saved/opened/cleared
-            baseline. See the `DirtyTracker` class.
+            Dirty indicator (Phase P5-02). Aggregate: shown when *any*
+            open tab differs from its last-saved baseline (P8-03 gave
+            each tab its own dot for the per-tab state; this one next to
+            the logo answers "is there unsaved work anywhere"). See the
+            `TabManager` class.
           -->
           <span
             id="dirty-indicator"
             class="hidden absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 border border-editor-header"
-            title="Unsaved changes"
+            title="Unsaved changes in one or more tabs"
           ></span>
         </div>
         <div id="controls" class="flex gap-[10px] items-center">
@@ -338,31 +340,18 @@
       ></div>
 
       <!--
-        Auto-save recovery banner (Phase P2-05). Shown once on startup
-        when a newer localStorage draft exists than what's currently
-        loaded (i.e. the previous session ended without an explicit
-        Save). Non-blocking: the editor is usable while it's visible.
+        Tab strip (Phase P8-03). Entirely rendered by `TabManager` -
+        every open document (each with its own content/cursor/dirty
+        state; settings/theme stay global) plus a trailing "+" button.
+        Supersedes the P2-05 single-document auto-save banner: instead
+        of prompting to restore one old draft, every tab's content is
+        continuously persisted and the whole strip reappears silently
+        on reload.
       -->
       <div
-        id="autosave-banner"
-        class="bg-amber-500 text-editor-header px-5 py-1.5 text-xs hidden items-center justify-between gap-3"
-      >
-        <span id="autosave-banner-message">Unsaved draft found from a previous session.</span>
-        <div class="flex gap-2 shrink-0">
-          <button
-            id="autosave-restore-btn"
-            class="bg-editor-header text-white px-3 py-1 rounded text-xs hover:bg-gray-700 transition-colors"
-          >
-            Restore
-          </button>
-          <button
-            id="autosave-dismiss-btn"
-            class="bg-transparent border border-editor-header px-3 py-1 rounded text-xs hover:bg-black hover:bg-opacity-10 transition-colors"
-          >
-            Dismiss
-          </button>
-        </div>
-      </div>
+        id="tab-strip"
+        class="flex items-stretch bg-editor-header border-b border-editor-border overflow-x-auto"
+      ></div>
 
       <div
         id="canvas-container"
@@ -1093,17 +1082,13 @@
 
       let errorTimeout = null;
 
-      // P2-05: auto-save manager, created once the editor is ready. Kept
-      // at module scope (like `editor`) so `FileManager` can clear the
-      // draft after an explicit save/open without needing a constructor
-      // dependency on it.
-      let autoSaveManager = null;
-
-      // P5-02: dirty (unsaved-changes) tracker, same module-scope
-      // pattern as `autoSaveManager` above so `FileManager` and the
-      // clear-document handler can query/reset it without a constructor
-      // dependency.
-      let dirtyTracker = null;
+      // P8-03: tab manager, created once the editor is ready. Kept at
+      // module scope (like `editor`) so `FileManager` and the
+      // clear-document handler can create tabs / query dirty state
+      // without a constructor dependency on it. Supersedes the P2-05
+      // `autoSaveManager` and P5-02 `dirtyTracker` module-scope
+      // variables that used to live here.
+      let tabManager = null;
 
       // Mongolian Unicode code point names (U+1800 to U+18AA)
       const mongolianCodepoints = {
@@ -2067,147 +2052,349 @@
       }
 
       // File Operations Management
-      // Auto-save draft to localStorage (Phase P2-05).
+      // Multi-document tabs (Phase P8-03).
       //
-      // Polls the live text every `POLL_MS` and writes a draft (only when
-      // the text actually changed since the last poll - this is what
-      // gives us "debounced" saves without needing a dedicated
-      // "text changed" event hook from Rust: a change followed by a
-      // pause of at least one poll interval settles into exactly one
-      // write). `FileManager` calls `clearDraft()` after every explicit
-      // save/open, so a draft surviving to the next page load means the
-      // previous session ended without one - exactly the "recover
-      // unsaved work" case the recovery banner handles.
-      class AutoSave {
-        static DRAFT_KEY = "uns-editor-autosave-draft";
-        static POLL_MS = 3000;
+      // Supersedes Phase P2-05's single-document `AutoSave` class and
+      // Phase P5-02's single-document `DirtyTracker` class - both are
+      // now per-tab concerns handled here instead. Design decisions
+      // (see DOC/IMPL/PHASE_8_03_IMPL.md for the full rationale):
+      //
+      // * Tabs are JS-level state layered on top of one shared
+      //   `WasmEditor`, not one `WasmEditor` per tab. Only the *active*
+      //   tab's text/cursor actually live in the WASM buffer at any
+      //   moment; switching tabs snapshots the outgoing tab's live
+      //   state into its own record, then loads the incoming tab's
+      //   record into the buffer via `set_text`/`set_cursor_position`.
+      // * Settings/theme are global (shared across tabs), matching most
+      //   tabbed editors - only document content, cursor, and dirty
+      //   state are per-tab.
+      // * Undo/redo history and find/replace state reset on every tab
+      //   switch, same as they already do today when opening a file
+      //   (`set_text` calls `discard_history()`/`find_replace.clear()`
+      //   in Rust) - an accepted trade-off, not an oversight, in
+      //   exchange for not needing per-tab `Editor`/`HistoryManager`
+      //   instances in Rust.
+      // * Every tab's content is continuously persisted to
+      //   localStorage (not just the active one), so a reload restores
+      //   the *whole* tab strip silently - no "restore this draft?"
+      //   banner needed any more.
+      // * A tab's `isDirty` flag means "differs from the last explicit
+      //   save/open for *this* tab" - localStorage persistence is a
+      //   safety net against losing work to a crash/closed tab, not a
+      //   substitute for actually saving a file.
+      class TabManager {
+        static STORAGE_KEY = "uns-editor-tabs-v1";
+        static POLL_MS = 2000;
 
         constructor(editor) {
           this.editor = editor;
-          this.lastSavedText = null;
+          this.tabs = [];
+          this.activeId = null;
           this.timer = null;
+          this.strip = document.getElementById("tab-strip");
+        }
+
+        generateId() {
+          return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        }
+
+        activeTab() {
+          return this.tabs.find((t) => t.id === this.activeId) || null;
+        }
+
+        nextUntitledName() {
+          let max = 0;
+          for (const t of this.tabs) {
+            const m = /^Untitled (\d+)$/.exec(t.name);
+            if (m) max = Math.max(max, parseInt(m[1], 10));
+          }
+          return `Untitled ${max + 1}`;
         }
 
         start() {
           if (this.timer) return;
-          this.timer = setInterval(() => this.maybeSave(), AutoSave.POLL_MS);
+          this.timer = setInterval(() => this.poll(), TabManager.POLL_MS);
         }
 
-        stop() {
-          if (this.timer) {
-            clearInterval(this.timer);
-            this.timer = null;
-          }
-        }
-
-        maybeSave() {
-          if (!this.editor) return;
-          let text;
+        // Pull the WASM buffer's live text/cursor into the active tab's
+        // own record and recompute its dirty flag. Call before reading
+        // or persisting a tab's state, and before switching away from
+        // it - the buffer is the only place the active tab's true
+        // current content lives.
+        snapshotActive() {
+          const tab = this.activeTab();
+          if (!tab || !this.editor) return;
           try {
-            text = this.editor.get_text();
+            tab.text = this.editor.get_text();
+            const cursor = this.editor.get_cursor_position();
+            tab.cursorLine = cursor.line;
+            tab.cursorColumn = cursor.column;
+            tab.isDirty = tab.text !== tab.savedBaseline;
           } catch (e) {
-            return;
-          }
-          if (text === this.lastSavedText) return;
-          this.lastSavedText = text;
-
-          try {
-            const draft = {
-              text,
-              settings: this.editor.get_settings_json(),
-              cursor: this.editor.get_cursor_position(),
-              timestamp: Date.now(),
-            };
-            localStorage.setItem(AutoSave.DRAFT_KEY, JSON.stringify(draft));
-          } catch (e) {
-            // Quota exceeded or similar - auto-save is a convenience, not
-            // a guarantee, so fail silently rather than interrupting
-            // editing.
-            console.error("Auto-save failed:", e);
+            // Editor not ready yet; leave the tab's last known record.
           }
         }
 
-        readDraft() {
-          const raw = localStorage.getItem(AutoSave.DRAFT_KEY);
-          if (!raw) return null;
+        loadActiveIntoEditor() {
+          const tab = this.activeTab();
+          if (!tab || !this.editor) return;
+          this.editor.set_text(tab.text || "");
+          this.editor.set_cursor_position(tab.cursorLine || 1, tab.cursorColumn || 1);
+        }
+
+        // Bootstrap the very first tab from whatever the WASM editor
+        // already has loaded (the random greeting) on a first-ever
+        // visit, without a redundant `set_text` round trip through
+        // Rust (which would also needlessly discard history that isn't
+        // there to discard yet).
+        seedFromCurrentEditorState(name) {
+          const text = this.editor.get_text();
+          let cursorLine = 1;
+          let cursorColumn = 1;
           try {
-            const draft = JSON.parse(raw);
-            if (!draft || typeof draft.text !== "string" || !draft.text.trim()) {
-              return null;
+            const cursor = this.editor.get_cursor_position();
+            cursorLine = cursor.line;
+            cursorColumn = cursor.column;
+          } catch (e) {
+            // Fall through with defaults.
+          }
+          const tab = {
+            id: this.generateId(),
+            name: name || this.nextUntitledName(),
+            text,
+            cursorLine,
+            cursorColumn,
+            savedBaseline: text,
+            isDirty: false,
+          };
+          this.tabs.push(tab);
+          this.activeId = tab.id;
+          this.persist();
+          this.render();
+          return tab;
+        }
+
+        // Create a tab. Used for the "+" button (blank tab) and for
+        // opening a file (per the resolved P8-03 scope decision, Open
+        // always creates a new tab rather than replacing the active
+        // one). A freshly created/opened tab always starts clean - its
+        // `savedBaseline` is exactly its initial `text`.
+        createTab({ name, text = "" } = {}) {
+          this.snapshotActive();
+          const tab = {
+            id: this.generateId(),
+            name: name || this.nextUntitledName(),
+            text,
+            cursorLine: 1,
+            cursorColumn: 1,
+            savedBaseline: text,
+            isDirty: false,
+          };
+          this.tabs.push(tab);
+          this.activeId = tab.id;
+          this.loadActiveIntoEditor();
+          this.persist();
+          this.render();
+          return tab;
+        }
+
+        switchTo(id) {
+          if (id === this.activeId) return;
+          const target = this.tabs.find((t) => t.id === id);
+          if (!target) return;
+          this.snapshotActive();
+          this.activeId = id;
+          this.loadActiveIntoEditor();
+          this.persist();
+          this.render();
+        }
+
+        cycleTab(direction) {
+          if (this.tabs.length < 2) return;
+          const idx = this.tabs.findIndex((t) => t.id === this.activeId);
+          const next = (idx + direction + this.tabs.length) % this.tabs.length;
+          this.switchTo(this.tabs[next].id);
+        }
+
+        closeTab(id) {
+          const idx = this.tabs.findIndex((t) => t.id === id);
+          if (idx === -1) return;
+
+          if (id === this.activeId) this.snapshotActive();
+          const tab = this.tabs[idx];
+          if (tab.isDirty) {
+            if (!confirm(`"${tab.name}" has unsaved changes. Close it anyway?`)) {
+              return;
             }
-            return draft;
-          } catch (e) {
-            return null;
           }
-        }
 
-        clearDraft() {
-          localStorage.removeItem(AutoSave.DRAFT_KEY);
-          // Re-baseline so the next edit is picked up as "changed" even
-          // if it happens to match whatever was in the draft.
-          try {
-            this.lastSavedText = this.editor ? this.editor.get_text() : null;
-          } catch (e) {
-            this.lastSavedText = null;
-          }
-        }
-      }
+          this.tabs.splice(idx, 1);
 
-      // Dirty (unsaved-changes) indicator (Phase P5-02).
-      //
-      // `baselineText` is "the text as of the last explicit save, file
-      // open, or document clear." Polled every second (more responsive
-      // than AutoSave's 3s cadence feels appropriate for a UI indicator
-      // the user is looking at, rather than a background safety net) and
-      // compared against the live text; a mismatch means "dirty."
-      class DirtyTracker {
-        static POLL_MS = 1000;
-
-        constructor(editor) {
-          this.editor = editor;
-          this.baselineText = null;
-          this.isDirty = false;
-          this.timer = null;
-          this.dot = document.getElementById("dirty-indicator");
-        }
-
-        start() {
-          if (this.timer) return;
-          this.timer = setInterval(() => this.check(), DirtyTracker.POLL_MS);
-        }
-
-        check() {
-          if (!this.editor || this.baselineText === null) return;
-          let text;
-          try {
-            text = this.editor.get_text();
-          } catch (e) {
+          if (this.tabs.length === 0) {
+            // Always keep at least one tab open.
+            this.createTab({ text: "" });
             return;
           }
-          this.setDirty(text !== this.baselineText);
+
+          if (id === this.activeId) {
+            const nextIdx = Math.min(idx, this.tabs.length - 1);
+            this.activeId = this.tabs[nextIdx].id;
+            this.loadActiveIntoEditor();
+          }
+
+          this.persist();
+          this.render();
         }
 
-        setDirty(dirty) {
-          if (dirty === this.isDirty) return;
-          this.isDirty = dirty;
-          if (this.dot) {
-            this.dot.classList.toggle("hidden", !dirty);
+        // Re-baseline the active tab to its current content (i.e. mark
+        // it saved) and optionally rename it to match a just-saved
+        // filename. Called by `FileManager` after a successful save.
+        markActiveClean(newName) {
+          const tab = this.activeTab();
+          if (!tab) return;
+          this.snapshotActive();
+          tab.savedBaseline = tab.text;
+          tab.isDirty = false;
+          if (newName) tab.name = newName;
+          this.persist();
+          this.render();
+        }
+
+        // Freshest possible read of "is the tab currently on screen
+        // dirty" - forces a snapshot first since the periodic poll may
+        // be up to `POLL_MS` stale.
+        isActiveDirty() {
+          this.snapshotActive();
+          const tab = this.activeTab();
+          return tab ? tab.isDirty : false;
+        }
+
+        // Same, but across every open tab - used for `beforeunload`.
+        anyDirty() {
+          this.snapshotActive();
+          return this.tabs.some((t) => t.isDirty);
+        }
+
+        poll() {
+          if (!this.editor) return;
+          const tab = this.activeTab();
+          if (!tab) return;
+          const wasDirty = tab.isDirty;
+          this.snapshotActive();
+          this.persist();
+          if (tab.isDirty !== wasDirty) {
+            this.render();
           }
         }
 
-        // Re-baseline to the current text and clear the dirty flag.
-        // Called after an explicit save, a successful file open, and
-        // clearing the document - all "this is now the known-good
-        // state" moments. Deliberately *not* called after restoring an
-        // auto-save draft (P2-05): a restored draft is recovered
-        // unsaved work, not a saved state.
-        markClean() {
+        persist() {
           try {
-            this.baselineText = this.editor ? this.editor.get_text() : null;
+            const payload = {
+              activeId: this.activeId,
+              tabs: this.tabs.map((t) => ({
+                id: t.id,
+                name: t.name,
+                text: t.text,
+                cursorLine: t.cursorLine,
+                cursorColumn: t.cursorColumn,
+                savedBaseline: t.savedBaseline,
+                isDirty: t.isDirty,
+              })),
+            };
+            localStorage.setItem(TabManager.STORAGE_KEY, JSON.stringify(payload));
           } catch (e) {
-            this.baselineText = null;
+            // Quota exceeded or similar - persistence is a safety net,
+            // not a guarantee, so fail silently rather than
+            // interrupting editing.
+            console.error("Tab persistence failed:", e);
           }
-          this.setDirty(false);
+        }
+
+        // Returns true if tabs were restored from a previous session,
+        // false if there was nothing to restore (first-ever visit, or
+        // storage was cleared) - the caller falls back to
+        // `seedFromCurrentEditorState` in that case.
+        restoreFromStorage() {
+          const raw = localStorage.getItem(TabManager.STORAGE_KEY);
+          if (!raw) return false;
+          try {
+            const payload = JSON.parse(raw);
+            if (!payload || !Array.isArray(payload.tabs) || payload.tabs.length === 0) {
+              return false;
+            }
+            this.tabs = payload.tabs.map((t) => ({
+              id: typeof t.id === "string" ? t.id : this.generateId(),
+              name: typeof t.name === "string" && t.name ? t.name : "Untitled",
+              text: typeof t.text === "string" ? t.text : "",
+              cursorLine: typeof t.cursorLine === "number" ? t.cursorLine : 1,
+              cursorColumn: typeof t.cursorColumn === "number" ? t.cursorColumn : 1,
+              savedBaseline: typeof t.savedBaseline === "string" ? t.savedBaseline : "",
+              isDirty: !!t.isDirty,
+            }));
+            const activeExists = this.tabs.some((t) => t.id === payload.activeId);
+            this.activeId = activeExists ? payload.activeId : this.tabs[0].id;
+            this.loadActiveIntoEditor();
+            this.render();
+            return true;
+          } catch (e) {
+            console.error("Failed to restore tabs:", e);
+            return false;
+          }
+        }
+
+        render() {
+          if (!this.strip) return;
+          this.strip.innerHTML = "";
+
+          for (const tab of this.tabs) {
+            const isActive = tab.id === this.activeId;
+            const el = document.createElement("div");
+            el.className =
+              "flex items-center gap-1.5 px-3 py-1.5 text-xs cursor-pointer border-r border-editor-border select-none max-w-[14rem] " +
+              (isActive
+                ? "bg-editor-bg text-editor-text"
+                : "bg-editor-header text-editor-text-dim hover:bg-editor-bg hover:text-editor-text");
+            el.title = tab.name;
+            el.dataset.tabId = tab.id; // stable selector for tests/e2e/tabs.spec.js
+            el.addEventListener("click", () => this.switchTo(tab.id));
+
+            const dot = document.createElement("span");
+            dot.className =
+              "w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" + (tab.isDirty ? "" : " invisible");
+            el.appendChild(dot);
+
+            const label = document.createElement("span");
+            label.className = "truncate";
+            label.textContent = tab.name;
+            el.appendChild(label);
+
+            const closeBtn = document.createElement("button");
+            closeBtn.className = "ml-1 opacity-60 hover:opacity-100 leading-none shrink-0";
+            closeBtn.textContent = "\u00d7";
+            closeBtn.title = "Close tab";
+            closeBtn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              this.closeTab(tab.id);
+            });
+            el.appendChild(closeBtn);
+
+            this.strip.appendChild(el);
+          }
+
+          const newTabBtn = document.createElement("button");
+          newTabBtn.id = "tab-strip-new-btn"; // stable selector for tests/e2e/tabs.spec.js
+          newTabBtn.className = "px-3 py-1.5 text-editor-text-dim hover:text-editor-text text-sm shrink-0";
+          newTabBtn.title = "New tab (Ctrl+N)";
+          newTabBtn.textContent = "+";
+          newTabBtn.addEventListener("click", () => this.createTab({ text: "" }));
+          this.strip.appendChild(newTabBtn);
+
+          // Aggregate dirty dot next to the logo (P5-02): any tab dirty,
+          // not just the active one.
+          const headerDot = document.getElementById("dirty-indicator");
+          if (headerDot) {
+            headerDot.classList.toggle("hidden", !this.tabs.some((t) => t.isDirty));
+          }
         }
       }
 
@@ -2331,13 +2518,10 @@
         }
 
         async handleDroppedFile(file) {
-          // Same unsaved-changes guard as `openFile()` (P5-02) - drag
-          // and drop is another way to discard the current document.
-          if (dirtyTracker && dirtyTracker.isDirty) {
-            if (!confirm("You have unsaved changes. Open a different file anyway?")) {
-              return;
-            }
-          }
+          // P8-03: dropping a file creates a new tab (like Open File),
+          // so there's nothing to discard any more - the P5-02
+          // confirm-before-discard guard that used to live here was
+          // removed along with that assumption.
           try {
             // Enforce file size limit (10MB)
             if (file.size > 10 * 1024 * 1024) {
@@ -2416,8 +2600,7 @@
             const filename = this.generateFilename("txt");
             this.downloadBlob(blob, filename);
             this.closeSaveModal();
-            if (autoSaveManager) autoSaveManager.clearDraft();
-            if (dirtyTracker) dirtyTracker.markClean();
+            if (tabManager) tabManager.markActiveClean(filename);
             updateStatus(`Saved as ${filename}`);
           } catch (e) {
             console.error("Save TXT error:", e);
@@ -2458,8 +2641,7 @@
             const filename = this.generateFilename("uns");
             this.downloadBlob(blob, filename);
             this.closeSaveModal();
-            if (autoSaveManager) autoSaveManager.clearDraft();
-            if (dirtyTracker) dirtyTracker.markClean();
+            if (tabManager) tabManager.markActiveClean(filename);
             updateStatus(`Saved as ${filename}`);
           } catch (e) {
             console.error("Save UNS error:", e);
@@ -2509,16 +2691,10 @@
         }
 
         openFile() {
-          // Guard against silently discarding unsaved work (P5-02).
-          // Auto-save (P2-05) already protects against total loss, but
-          // a confirm here avoids the surprise of the current view
-          // suddenly changing out from under an unsaved edit.
-          if (dirtyTracker && dirtyTracker.isDirty) {
-            if (!confirm("You have unsaved changes. Open a different file anyway?")) {
-              return;
-            }
-          }
-          // Trigger file input click (opens native file picker)
+          // P8-03: opening a file creates a new tab, so there's nothing
+          // to discard any more - see `handleDroppedFile` for the same
+          // reasoning (the P5-02 confirm-before-discard guard that used
+          // to live here was removed along with that assumption).
           this.fileInput.click();
         }
 
@@ -2566,10 +2742,14 @@
         }
 
         loadTxtFile(text, filename) {
-          // Simple: just set the text, keep current settings
-          this.editor.set_text(text);
-          if (autoSaveManager) autoSaveManager.clearDraft();
-            if (dirtyTracker) dirtyTracker.markClean();
+          // P8-03: opens into a new tab (keeping current settings,
+          // which are global) rather than replacing the active tab's
+          // content. `createTab` already starts the new tab clean.
+          if (tabManager) {
+            tabManager.createTab({ name: filename, text });
+          } else {
+            this.editor.set_text(text);
+          }
           updateStatus(`Opened ${filename} (plain text)`);
         }
 
@@ -2596,10 +2776,23 @@
               throw new Error("Invalid UNS file: missing content.text");
             }
 
-            // Load text content
-            this.editor.set_text(unsDocument.content.text);
+            // Load text content into a new tab (P8-03) rather than
+            // replacing the active tab's content.
+            let tab = null;
+            if (tabManager) {
+              tab = tabManager.createTab({ name: filename, text: unsDocument.content.text });
+            } else {
+              this.editor.set_text(unsDocument.content.text);
+            }
 
-            // Load settings if present
+            // Restore the saved cursor position within the new tab.
+            if (tab && unsDocument.content.cursor) {
+              tab.cursorLine = unsDocument.content.cursor.line || 1;
+              tab.cursorColumn = unsDocument.content.cursor.column || 1;
+              this.editor.set_cursor_position(tab.cursorLine, tab.cursorColumn);
+            }
+
+            // Load settings if present (global - shared across tabs).
             if (unsDocument.settings) {
               try {
                 const settingsJson = JSON.stringify(unsDocument.settings);
@@ -2615,8 +2808,6 @@
               }
             }
 
-            if (autoSaveManager) autoSaveManager.clearDraft();
-            if (dirtyTracker) dirtyTracker.markClean();
             updateStatus(`Opened ${filename} (with settings)`);
 
             // Log metadata for debugging
@@ -3381,70 +3572,26 @@
           // Initialize find & replace panel (Phase P2-03)
           const findReplacePanel = new FindReplacePanel(editor);
 
-          // Initialize the dirty indicator (Phase P5-02). Baseline to
-          // whatever text is on screen right now (the random greeting,
-          // or nothing) *before* the draft-recovery banner below can
-          // possibly change it - restoring a draft should show up as
-          // dirty (see `DirtyTracker.markClean`'s doc comment).
-          dirtyTracker = new DirtyTracker(editor);
-          dirtyTracker.markClean();
-          dirtyTracker.start();
+          // Initialize tabs (Phase P8-03). Restore a previous session's
+          // tabs if one exists in localStorage; otherwise seed a single
+          // tab from whatever the WASM editor already has loaded (the
+          // random greeting) so the very first document a user ever
+          // sees is itself already a normal, closeable/renameable tab.
+          tabManager = new TabManager(editor);
+          const restoredTabs = tabManager.restoreFromStorage();
+          if (!restoredTabs) {
+            tabManager.seedFromCurrentEditorState("Untitled 1");
+          } else {
+            updateStatus(`Restored ${tabManager.tabs.length} tab(s) from your last session`);
+          }
+          tabManager.start();
 
           window.addEventListener("beforeunload", (e) => {
-            if (dirtyTracker && dirtyTracker.isDirty) {
+            if (tabManager && tabManager.anyDirty()) {
               e.preventDefault();
               e.returnValue = "";
             }
           });
-
-          // Initialize auto-save and offer draft recovery (Phase P2-05).
-          // Must run after settings are loaded (above) so a restored
-          // draft's own settings - if the user accepts - are applied on
-          // top of, rather than before, the persisted ones.
-          autoSaveManager = new AutoSave(editor);
-          const draft = autoSaveManager.readDraft();
-          if (draft) {
-            const banner = document.getElementById("autosave-banner");
-            const message = document.getElementById("autosave-banner-message");
-            const restoreBtn = document.getElementById("autosave-restore-btn");
-            const dismissBtn = document.getElementById("autosave-dismiss-btn");
-
-            const when = new Date(draft.timestamp);
-            message.textContent = `Unsaved draft found from ${when.toLocaleString()}.`;
-            banner.classList.remove("hidden");
-            banner.classList.add("flex");
-
-            const hideBanner = () => {
-              banner.classList.add("hidden");
-              banner.classList.remove("flex");
-            };
-
-            restoreBtn.addEventListener("click", () => {
-              try {
-                editor.set_text(draft.text);
-                if (draft.settings) {
-                  editor.set_settings_json(draft.settings);
-                  localStorage.setItem("uns-editor-settings", draft.settings);
-                }
-                if (draft.cursor) {
-                  editor.set_cursor_position(draft.cursor.line, draft.cursor.column);
-                }
-                updateStatus("Draft restored");
-              } catch (e) {
-                console.error("Failed to restore draft:", e);
-                showError("Failed to restore draft: " + e.message);
-              } finally {
-                autoSaveManager.clearDraft();
-                hideBanner();
-              }
-            });
-
-            dismissBtn.addEventListener("click", () => {
-              autoSaveManager.clearDraft();
-              hideBanner();
-            });
-          }
-          autoSaveManager.start();
 
           // Keyboard shortcuts for save/open
           document.addEventListener("keydown", (e) => {
@@ -3497,6 +3644,35 @@
             if ((e.ctrlKey || e.metaKey) && e.key === "-") {
               e.preventDefault();
               adjustFontSize(-2);
+              return;
+            }
+
+            // Ctrl+N / Cmd+N - New tab (Phase P8-03). This one is
+            // reliable - unlike Ctrl+W/Ctrl+Tab below, browsers don't
+            // reserve Ctrl+N as aggressively (Chrome does use it for a
+            // new *window*, but still lets pages override it).
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "n" || e.key === "N")) {
+              e.preventDefault();
+              tabManager.createTab({ text: "" });
+              return;
+            }
+
+            // Ctrl+W / Cmd+W - Close active tab. Best-effort only: Chrome
+            // specifically refuses to let pages override closing the
+            // browser tab itself, so this will do nothing in Chrome. The
+            // × button on each tab is the reliable way to close one.
+            if ((e.ctrlKey || e.metaKey) && (e.key === "w" || e.key === "W")) {
+              e.preventDefault();
+              tabManager.closeTab(tabManager.activeId);
+              return;
+            }
+
+            // Ctrl+Tab / Ctrl+Shift+Tab - Cycle tabs. Also best-effort:
+            // browsers may intercept this for switching *browser* tabs
+            // instead of handing it to the page.
+            if (e.ctrlKey && e.key === "Tab") {
+              e.preventDefault();
+              tabManager.cycleTab(e.shiftKey ? -1 : 1);
               return;
             }
 
@@ -4089,16 +4265,16 @@
 
           setupButton("clear-btn", () => {
             if (editor) {
-              // Unsaved-changes guard (P5-02), same wording/behavior as
-              // the Open File guard.
-              if (dirtyTracker && dirtyTracker.isDirty) {
+              // Unsaved-changes guard (P5-02): Clear still discards the
+              // active tab's content in place (unlike Open, it doesn't
+              // create a new tab), so it keeps this confirm.
+              if (tabManager && tabManager.isActiveDirty()) {
                 if (!confirm("You have unsaved changes. Clear the document anyway?")) {
                   return;
                 }
               }
               editor.set_text("");
-              if (autoSaveManager) autoSaveManager.clearDraft();
-              if (dirtyTracker) dirtyTracker.markClean();
+              if (tabManager) tabManager.markActiveClean();
               updateStatus("Text cleared");
               // Focus canvas after action
               if (isMobileDevice) {

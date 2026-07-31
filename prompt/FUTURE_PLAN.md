@@ -198,7 +198,8 @@ Items inherited from the original `IMPLEMENTATION_SUMMARY.md` deferred list, plu
 - **P8-02** `[ ]` **XL** — Collaborative editing via CRDT
   - Research spike first; likely needs a significant rework of the editing model.
 
-- **P8-03** `[ ]` **M** — Multiple documents / tab strip
+- **P8-03** `[x]` **M** — Multiple documents / tab strip
+  - Impl log: [`DOC/IMPL/PHASE_8_03_IMPL.md`](../DOC/IMPL/PHASE_8_03_IMPL.md) · Patch: `patch/Phase_8_03.patch`. Done ahead of the suggested order, at the user's explicit request, right after P7-04. JS-level `TabManager` on one shared `WasmEditor` (settings/theme stay global; undo/redo and find/replace reset on switch, same as opening a file already did). Open File / drag-drop now create a new tab instead of replacing the active one (the P5-02 confirm-before-discard guard was removed for Open specifically, kept for Clear). Superseded the P2-05 `AutoSave` banner and P5-02 `DirtyTracker` with per-tab persistence + dirty tracking — every open tab is continuously saved to localStorage and the whole strip restores silently on reload, no banner. Verified against a real headless Chromium: `tests/e2e/tabs.spec.js` (new) plus `tests/e2e/smoke.spec.js` (updated for silent restore) — 3/3 passing.
 
 - **P8-04** `[x]` **S** — Zoom shortcut
   - Impl log: [`DOC/IMPL/PHASE_4_IMPL.md`](../DOC/IMPL/PHASE_4_IMPL.md). `Ctrl+=` and `Ctrl+-` bump font size up and down, scaling line height proportionally (preserving whatever ratio was already set, rather than resetting to the settings modal's fixed 1.25× default).
@@ -212,8 +213,8 @@ Items inherited from the original `IMPLEMENTATION_SUMMARY.md` deferred list, plu
 3. ~~**P2-01 undo**, **P2-02 line numbers**, **P2-03 find and replace**, **P2-05 auto-save**, **P2-04 word wrap**~~ — done (all of Phase P2 shipped together; see `DOC/IMPL/PHASE_2_IMPL.md`).
 4. ~~**Phase P4 themes**, **P8-04 zoom**, **P5-02 dirty indicator**~~ — done (see `DOC/IMPL/PHASE_4_IMPL.md`).
 5. ~~**P7-04 Playwright smoke test**~~ — done out of order, at the user's explicit request (see `DOC/IMPL/PHASE_7_04_IMPL.md`), ahead of P8-03 so tabs could be built with real browser verification.
-6. **P8-03 multiple documents / tab strip** — user's explicit next priority, also out of the original suggested order. **← next.**
-7. **Phase P6 keybindings**, **P3-03 Latin-map editor**, remainder of **Phase P7** performance and tests. Power-user and quality.
+6. ~~**P8-03 multiple documents / tab strip**~~ — done, out of the original suggested order at the user's explicit request (see `DOC/IMPL/PHASE_8_03_IMPL.md`).
+7. **Phase P6 keybindings**, **P3-03 Latin-map editor**, remainder of **Phase P7** performance and tests. Power-user and quality. **← next.**
 
 ## Open questions (resolutions recorded)
 
