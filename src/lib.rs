@@ -1138,6 +1138,18 @@ impl WasmEditor {
         EditorSettings::default().to_json()
     }
 
+    /// Returns the built-in theme presets (P4-01) as a JSON array of
+    /// `{ id, name, appearance: { text_color, background_color, ... } }`.
+    /// Does not mutate editor state - the JS Color tab applies a theme by
+    /// merging the chosen entry's `appearance` into the current settings
+    /// and calling `set_settings_json`, the same "merge on save" pattern
+    /// used for every other settings field (see P0-02/P0-03).
+    #[wasm_bindgen]
+    pub fn list_themes(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&config::themes::built_in_themes())
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
     // ==========================================================================
     // Plugin system: command palette bindings (P1-03)
     // ==========================================================================

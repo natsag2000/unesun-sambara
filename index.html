@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>unesun sambarA - Mongolian Text Editor</title>
-    <link rel="stylesheet" href="dist/output.css?v=10" />
+    <link rel="stylesheet" href="dist/output.css?v=11" />
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0"
@@ -203,13 +203,25 @@
         id="header"
         class="bg-editor-header px-5 py-1.5 border-b border-editor-border flex justify-between items-center"
       >
-        <img
-          id="logo-btn"
-          src="assets/logo.png"
-          alt="UNS Editor"
-          style="height: 28px; width: auto; cursor: pointer"
-          title="Version Information"
-        />
+        <div class="relative" style="height: 28px">
+          <img
+            id="logo-btn"
+            src="assets/logo.png"
+            alt="UNS Editor"
+            style="height: 28px; width: auto; cursor: pointer"
+            title="Version Information"
+          />
+          <!--
+            Dirty indicator (Phase P5-02). Shown when the current text
+            differs from the last explicitly-saved/opened/cleared
+            baseline. See the `DirtyTracker` class.
+          -->
+          <span
+            id="dirty-indicator"
+            class="hidden absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 border border-editor-header"
+            title="Unsaved changes"
+          ></span>
+        </div>
         <div id="controls" class="flex gap-[10px] items-center">
           <!-- Always visible: Toggle Input Mode -->
           <button
@@ -648,6 +660,22 @@
           <!-- Color Tab -->
           <div id="color-tab" class="settings-tab-content p-6 hidden">
             <div style="display: flex; flex-direction: column; gap: 1rem">
+              <!-- Theme presets (P4-01) -->
+              <div class="space-y-2">
+                <label class="block text-xs font-medium text-editor-text-dim">Theme</label>
+                <div class="flex gap-2">
+                  <select
+                    id="theme-select"
+                    class="flex-1 bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-editor-accent"
+                  >
+                    <!-- Populated from editor.list_themes() at runtime, plus a trailing "Custom" option. -->
+                  </select>
+                </div>
+                <p class="text-editor-text-dim text-xs">
+                  Picking a theme fills in every color below. Editing any color afterwards switches to "Custom".
+                </p>
+              </div>
+
               <div style="display: flex; flex-direction: column; gap: 0.5rem">
                 <label
                   style="
@@ -718,6 +746,60 @@
                     style="flex: 1; min-width: 0"
                   />
                 </div>
+              </div>
+
+              <!-- Advanced colors (deferred from P0-03, exposed now that P4 themes give them a reason to be visible). -->
+              <details class="border border-editor-border rounded">
+                <summary class="px-3 py-2 text-sm text-editor-text cursor-pointer select-none">
+                  Advanced colors
+                </summary>
+                <div class="p-3 pt-1 space-y-3">
+                  <div class="space-y-1">
+                    <label class="block text-xs text-editor-text-dim">Cursor Color</label>
+                    <div class="flex gap-2">
+                      <input type="color" id="cursor-color" value="#0d0d0d" class="w-14 h-9 border border-editor-border rounded cursor-pointer p-0 bg-transparent" />
+                      <input type="text" id="cursor-color-hex" class="flex-1 min-w-0 bg-editor-bg text-editor-text border border-editor-border rounded px-2 py-1 text-sm font-mono" />
+                    </div>
+                  </div>
+                  <div class="space-y-1">
+                    <label class="block text-xs text-editor-text-dim">Selection Color</label>
+                    <div class="flex gap-2">
+                      <input type="color" id="selection-color" value="#5078c8" class="w-14 h-9 border border-editor-border rounded cursor-pointer p-0 bg-transparent" />
+                      <input type="text" id="selection-color-hex" class="flex-1 min-w-0 bg-editor-bg text-editor-text border border-editor-border rounded px-2 py-1 text-sm font-mono" />
+                    </div>
+                  </div>
+                  <div class="space-y-1">
+                    <label class="block text-xs text-editor-text-dim">Gutter Background</label>
+                    <div class="flex gap-2">
+                      <input type="color" id="gutter-background-color" value="#252526" class="w-14 h-9 border border-editor-border rounded cursor-pointer p-0 bg-transparent" />
+                      <input type="text" id="gutter-background-color-hex" class="flex-1 min-w-0 bg-editor-bg text-editor-text border border-editor-border rounded px-2 py-1 text-sm font-mono" />
+                    </div>
+                  </div>
+                  <div class="space-y-1">
+                    <label class="block text-xs text-editor-text-dim">Line Number Color</label>
+                    <div class="flex gap-2">
+                      <input type="color" id="line-number-color" value="#858585" class="w-14 h-9 border border-editor-border rounded cursor-pointer p-0 bg-transparent" />
+                      <input type="text" id="line-number-color-hex" class="flex-1 min-w-0 bg-editor-bg text-editor-text border border-editor-border rounded px-2 py-1 text-sm font-mono" />
+                    </div>
+                  </div>
+                </div>
+              </details>
+
+              <!-- Theme import/export (P4-02) -->
+              <div class="flex gap-2">
+                <button
+                  id="theme-export-btn"
+                  class="flex-1 bg-gray-600 text-white px-3 py-2 rounded text-xs hover:bg-gray-700 transition-colors"
+                >
+                  Export Theme JSON
+                </button>
+                <button
+                  id="theme-import-btn"
+                  class="flex-1 bg-gray-600 text-white px-3 py-2 rounded text-xs hover:bg-gray-700 transition-colors"
+                >
+                  Import Theme JSON
+                </button>
+                <input type="file" id="theme-import-input" accept=".json" style="display: none" />
               </div>
             </div>
           </div>
@@ -1001,7 +1083,7 @@
     </div>
 
     <script type="module">
-      import init, { WasmEditor } from "./pkg/uns_editor.js?v=6";
+      import init, { WasmEditor } from "./pkg/uns_editor.js?v=7";
 
       let editor = null;
       let animationId = null;
@@ -1016,6 +1098,12 @@
       // draft after an explicit save/open without needing a constructor
       // dependency on it.
       let autoSaveManager = null;
+
+      // P5-02: dirty (unsaved-changes) tracker, same module-scope
+      // pattern as `autoSaveManager` above so `FileManager` and the
+      // clear-document handler can query/reset it without a constructor
+      // dependency.
+      let dirtyTracker = null;
 
       // Mongolian Unicode code point names (U+1800 to U+18AA)
       const mongolianCodepoints = {
@@ -1217,6 +1305,20 @@
         return isLightColor(backgroundColor) ? "#333333" : "#ffffff";
       }
 
+      // P4-01: `<input type="color">` only ever holds 6-digit RGB hex,
+      // but Rust's `AppearanceSettings` colors may carry an 8-digit
+      // alpha suffix (see the `color_serde` fix in
+      // `src/config/settings.rs`). These two helpers split/strip that
+      // suffix so the color picker UI and the alpha-preserving JSON
+      // round trip can coexist.
+      function to6HexColor(hex) {
+        return hex ? hex.slice(0, 7) : "#000000";
+      }
+
+      function alphaSuffixOf(hex) {
+        return hex && hex.length === 9 ? hex.slice(7, 9) : "";
+      }
+
       function showError(message, duration = 5000) {
         const errorEl = document.getElementById("error");
         errorEl.textContent = "⚠️ Error: " + message;
@@ -1247,6 +1349,31 @@
 
       function updateStatus(message) {
         document.getElementById("status-message").textContent = message;
+      }
+
+      // P8-04: bump font size (and proportionally, line height, so the
+      // two stay in whatever ratio the user already had) via
+      // Ctrl+=/Ctrl+-. Goes through the same
+      // get_settings_json/set_settings_json round trip the settings
+      // modal uses, so it stays merge-safe with any other pending field.
+      function adjustFontSize(delta) {
+        if (!editor) return;
+        try {
+          const settings = JSON.parse(editor.get_settings_json());
+          const oldSize = settings.fonts.font_size;
+          const newSize = Math.max(8, Math.min(300, oldSize + delta));
+          if (newSize === oldSize) return;
+
+          const ratio = newSize / oldSize;
+          settings.fonts.font_size = newSize;
+          settings.fonts.line_height = Math.round(settings.fonts.line_height * ratio);
+
+          editor.set_settings_json(JSON.stringify(settings));
+          localStorage.setItem("uns-editor-settings", JSON.stringify(settings));
+          updateStatus(`Font size: ${newSize}px`);
+        } catch (e) {
+          console.error("adjustFontSize failed:", e);
+        }
       }
 
       function resizeCanvas() {
@@ -1373,7 +1500,31 @@
           this.editor = editor;
           this.modal = document.getElementById("settings-modal");
           this.initElements();
+          this.loadThemes();
           this.attachEventListeners();
+        }
+
+        // Populate `this.themes` and the theme <select> from Rust
+        // (P4-01). Called once at construction; the list is static for
+        // the lifetime of the page (built-in themes are compiled in).
+        loadThemes() {
+          try {
+            this.themes = JSON.parse(this.editor.list_themes());
+          } catch (e) {
+            console.error("Failed to load themes:", e);
+            this.themes = [];
+          }
+          this.elements.themeSelect.innerHTML = "";
+          for (const theme of this.themes) {
+            const opt = document.createElement("option");
+            opt.value = theme.id;
+            opt.textContent = theme.name;
+            this.elements.themeSelect.appendChild(opt);
+          }
+          const customOpt = document.createElement("option");
+          customOpt.value = "custom";
+          customOpt.textContent = "Custom";
+          this.elements.themeSelect.appendChild(customOpt);
         }
 
         initElements() {
@@ -1396,7 +1547,35 @@
             backgroundColorHex: document.getElementById("background-color-hex"),
             showLineNumbers: document.getElementById("show-line-numbers"),
             wordWrap: document.getElementById("word-wrap"),
+            themeSelect: document.getElementById("theme-select"),
+            cursorColor: document.getElementById("cursor-color"),
+            cursorColorHex: document.getElementById("cursor-color-hex"),
+            selectionColor: document.getElementById("selection-color"),
+            selectionColorHex: document.getElementById("selection-color-hex"),
+            gutterBackgroundColor: document.getElementById("gutter-background-color"),
+            gutterBackgroundColorHex: document.getElementById("gutter-background-color-hex"),
+            lineNumberColor: document.getElementById("line-number-color"),
+            lineNumberColorHex: document.getElementById("line-number-color-hex"),
+            themeExportBtn: document.getElementById("theme-export-btn"),
+            themeImportBtn: document.getElementById("theme-import-btn"),
+            themeImportInput: document.getElementById("theme-import-input"),
           };
+
+          // Advanced colors may carry alpha (e.g. selection_color's
+          // default is semi-transparent). Plain `<input type="color">`
+          // only ever holds 6-digit RGB, so we track each field's alpha
+          // byte (as a 2-digit hex suffix) separately and re-append it
+          // on save, unless the field's own theme/loaded value changes
+          // it. See the `color_serde` alpha round-trip fix in
+          // `src/config/settings.rs` (P4-01).
+          this.colorAlpha = {
+            selection_color: "80", // matches AppearanceSettings::default()
+          };
+
+          // Cached from `editor.list_themes()`; populated once in the
+          // constructor, applied whenever the theme dropdown changes.
+          this.themes = [];
+          this.activeThemeId = "custom";
 
           this.buttons = {
             open: document.getElementById("settings-btn"),
@@ -1527,31 +1706,204 @@
           this.elements.textColor.addEventListener("input", (e) => {
             this.elements.textColorHex.value = e.target.value;
             this.elements.fontPreview.style.color = e.target.value;
+            this.markCustom();
           });
 
           this.elements.textColorHex.addEventListener("input", (e) => {
             if (/^#[0-9A-F]{6}$/i.test(e.target.value)) {
               this.elements.textColor.value = e.target.value;
               this.elements.fontPreview.style.color = e.target.value;
+              this.markCustom();
             }
           });
 
           this.elements.backgroundColor.addEventListener("input", (e) => {
             this.elements.backgroundColorHex.value = e.target.value;
             this.elements.fontPreview.style.backgroundColor = e.target.value;
+            this.markCustom();
           });
 
           this.elements.backgroundColorHex.addEventListener("input", (e) => {
             if (/^#[0-9A-F]{6}$/i.test(e.target.value)) {
               this.elements.backgroundColor.value = e.target.value;
               this.elements.fontPreview.style.backgroundColor = e.target.value;
+              this.markCustom();
             }
           });
+
+          // Advanced colors (P0-03 / P4-01): same color-picker <-> hex
+          // text sync pattern as text/background above, generalized
+          // over the four extra fields so they share one bit of code.
+          const advancedFields = [
+            ["cursorColor", "cursorColorHex"],
+            ["selectionColor", "selectionColorHex"],
+            ["gutterBackgroundColor", "gutterBackgroundColorHex"],
+            ["lineNumberColor", "lineNumberColorHex"],
+          ];
+          for (const [colorKey, hexKey] of advancedFields) {
+            this.elements[colorKey].addEventListener("input", (e) => {
+              this.elements[hexKey].value = e.target.value;
+              this.markCustom();
+            });
+            this.elements[hexKey].addEventListener("input", (e) => {
+              if (/^#[0-9A-F]{6}$/i.test(e.target.value)) {
+                this.elements[colorKey].value = e.target.value;
+                this.markCustom();
+              }
+            });
+          }
+
+          // Theme dropdown (P4-01)
+          this.elements.themeSelect.addEventListener("change", (e) => {
+            if (e.target.value === "custom") {
+              this.activeThemeId = "custom";
+              return;
+            }
+            this.applyTheme(e.target.value);
+          });
+
+          // Theme import / export (P4-02)
+          addHandler(this.elements.themeExportBtn, () => this.exportTheme());
+          addHandler(this.elements.themeImportBtn, () =>
+            this.elements.themeImportInput.click(),
+          );
+          this.elements.themeImportInput.addEventListener("change", (e) =>
+            this.importTheme(e),
+          );
 
           // Close on outside click
           this.modal.addEventListener("click", (e) => {
             if (e.target === this.modal) this.close();
           });
+        }
+
+        // Any manual color edit (outside of `applyTheme` itself, guarded
+        // by `this.applyingTheme`) switches the dropdown to "Custom" -
+        // it no longer exactly matches the preset that was selected.
+        markCustom() {
+          if (this.applyingTheme) return;
+          this.activeThemeId = "custom";
+          this.elements.themeSelect.value = "custom";
+        }
+
+        // Populate every color field (main + advanced) from a theme's
+        // `appearance` object and select it in the dropdown. Shared by
+        // the dropdown's `change` handler and by `importTheme`.
+        applyThemeColors(themeId, appearance) {
+          this.applyingTheme = true;
+          try {
+            this.elements.textColor.value = to6HexColor(appearance.text_color);
+            this.elements.textColorHex.value = this.elements.textColor.value;
+            this.elements.backgroundColor.value = to6HexColor(appearance.background_color);
+            this.elements.backgroundColorHex.value = this.elements.backgroundColor.value;
+            this.elements.fontPreview.style.color = this.elements.textColor.value;
+            this.elements.fontPreview.style.backgroundColor = this.elements.backgroundColor.value;
+
+            const advanced = [
+              ["cursorColor", "cursorColorHex", "cursor_color"],
+              ["selectionColor", "selectionColorHex", "selection_color"],
+              ["gutterBackgroundColor", "gutterBackgroundColorHex", "gutter_background"],
+              ["lineNumberColor", "lineNumberColorHex", "line_number_color"],
+            ];
+            for (const [colorKey, hexKey, field] of advanced) {
+              const hex = appearance[field];
+              this.elements[colorKey].value = to6HexColor(hex);
+              this.elements[hexKey].value = this.elements[colorKey].value;
+              this.colorAlpha[field] = alphaSuffixOf(hex);
+            }
+
+            this.activeThemeId = themeId;
+            this.elements.themeSelect.value = themeId;
+          } finally {
+            this.applyingTheme = false;
+          }
+        }
+
+        applyTheme(themeId) {
+          const theme = this.themes.find((t) => t.id === themeId);
+          if (!theme) return;
+          this.applyThemeColors(theme.id, theme.appearance);
+          updateStatus(`Theme: ${theme.name}`);
+        }
+
+        // Export the *current* color fields (not necessarily a named
+        // built-in) as a downloadable theme JSON (P4-02).
+        exportTheme() {
+          try {
+            const appearance = this.collectAppearance();
+            const payload = {
+              name: this.activeThemeId === "custom" ? "Custom Theme" : this.themes.find((t) => t.id === this.activeThemeId)?.name || "Theme",
+              appearance,
+            };
+            const blob = new Blob([JSON.stringify(payload, null, 2)], {
+              type: "application/json;charset=utf-8",
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "uns-theme.json";
+            a.style.display = "none";
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }, 100);
+            updateStatus("Theme exported");
+          } catch (e) {
+            console.error("Theme export failed:", e);
+            showError("Failed to export theme: " + e.message);
+          }
+        }
+
+        importTheme(event) {
+          const file = event.target.files[0];
+          event.target.value = ""; // allow re-importing the same file later
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              const parsed = JSON.parse(e.target.result);
+              const appearance = parsed.appearance || parsed; // accept a bare appearance object too
+              const required = [
+                "text_color",
+                "background_color",
+                "cursor_color",
+                "selection_color",
+                "gutter_background",
+                "line_number_color",
+              ];
+              for (const field of required) {
+                if (typeof appearance[field] !== "string") {
+                  throw new Error(`Missing or invalid "${field}"`);
+                }
+              }
+              this.applyThemeColors("custom", appearance);
+              updateStatus(`Imported theme${parsed.name ? ": " + parsed.name : ""}`);
+            } catch (err) {
+              console.error("Theme import failed:", err);
+              showError("Failed to import theme: " + err.message);
+            }
+          };
+          reader.onerror = () => showError("Failed to read theme file");
+          reader.readAsText(file);
+        }
+
+        // Read the six color fields back out as the hex strings
+        // `set_settings_json` expects, re-appending each field's tracked
+        // alpha suffix (see `this.colorAlpha` above).
+        collectAppearance() {
+          const withAlpha = (hex6, field) =>
+            hex6 + (this.colorAlpha[field] || "");
+          return {
+            text_color: this.elements.textColor.value,
+            background_color: this.elements.backgroundColor.value,
+            cursor_color: withAlpha(this.elements.cursorColor.value, "cursor_color"),
+            selection_color: withAlpha(this.elements.selectionColor.value, "selection_color"),
+            gutter_background: withAlpha(this.elements.gutterBackgroundColor.value, "gutter_background"),
+            line_number_color: withAlpha(this.elements.lineNumberColor.value, "line_number_color"),
+          };
         }
 
         open() {
@@ -1618,19 +1970,41 @@
             this.elements.fontPreview.style.fontSize = `${settings.fonts.font_size}px`;
             this.elements.fontPreview.style.lineHeight = `${settings.fonts.line_height}px`;
 
-            this.elements.textColor.value = settings.appearance.text_color;
-            this.elements.textColorHex.value = settings.appearance.text_color;
-            this.elements.backgroundColor.value =
-              settings.appearance.background_color;
-            this.elements.backgroundColorHex.value =
-              settings.appearance.background_color;
-            this.elements.fontPreview.style.color =
-              settings.appearance.text_color;
+            this.elements.textColor.value = to6HexColor(settings.appearance.text_color);
+            this.elements.textColorHex.value = this.elements.textColor.value;
+            this.elements.backgroundColor.value = to6HexColor(
+              settings.appearance.background_color,
+            );
+            this.elements.backgroundColorHex.value = this.elements.backgroundColor.value;
+            this.elements.fontPreview.style.color = this.elements.textColor.value;
             this.elements.fontPreview.style.backgroundColor =
-              settings.appearance.background_color;
+              this.elements.backgroundColor.value;
+
+            // Advanced colors + their tracked alpha suffixes (P4-01).
+            const advanced = [
+              ["cursorColor", "cursorColorHex", "cursor_color"],
+              ["selectionColor", "selectionColorHex", "selection_color"],
+              ["gutterBackgroundColor", "gutterBackgroundColorHex", "gutter_background"],
+              ["lineNumberColor", "lineNumberColorHex", "line_number_color"],
+            ];
+            for (const [colorKey, hexKey, field] of advanced) {
+              const hex = settings.appearance[field];
+              this.elements[colorKey].value = to6HexColor(hex);
+              this.elements[hexKey].value = this.elements[colorKey].value;
+              this.colorAlpha[field] = alphaSuffixOf(hex);
+            }
 
             this.elements.showLineNumbers.checked = !!settings.editor.show_line_numbers;
             this.elements.wordWrap.checked = settings.editor.word_wrap !== false;
+
+            // Restore the theme dropdown's selection (purely cosmetic -
+            // `appearance` above is already the real state regardless of
+            // what this resolves to).
+            this.activeThemeId = settings.editor.theme_id || "custom";
+            const knownIds = this.themes.map((t) => t.id).concat(["custom"]);
+            this.elements.themeSelect.value = knownIds.includes(this.activeThemeId)
+              ? this.activeThemeId
+              : "custom";
           } catch (e) {
             console.error("Failed to load settings:", e);
           }
@@ -1638,20 +2012,19 @@
 
         save() {
           try {
-            // Merge on top of the current settings so that fields the UI does
-            // not expose (orientation, selection_color, gutter_background,
-            // line_number_color) are preserved instead of clobbered.
-            // See P0-02 and P0-03 in prompt/FUTURE_PLAN.md.
+            // Merge on top of the current settings so that any field
+            // this modal doesn't expose is preserved instead of
+            // clobbered. See P0-02 and P0-03 in prompt/FUTURE_PLAN.md.
+            // As of P4-01 that's every `appearance` field is now
+            // exposed (main two + the four "Advanced" ones), but the
+            // merge stays defensive for whatever a future settings
+            // field turns out to be.
             const current = JSON.parse(this.editor.get_settings_json());
             const settings = {
               ...current,
               appearance: {
                 ...current.appearance,
-                text_color: this.elements.textColor.value,
-                background_color: this.elements.backgroundColor.value,
-                cursor_color: getCursorColor(
-                  this.elements.backgroundColor.value,
-                ),
+                ...this.collectAppearance(),
               },
               fonts: {
                 ...current.fonts,
@@ -1663,6 +2036,7 @@
                 ...current.editor,
                 show_line_numbers: this.elements.showLineNumbers.checked,
                 word_wrap: this.elements.wordWrap.checked,
+                theme_id: this.activeThemeId,
               },
             };
 
@@ -1776,6 +2150,64 @@
           } catch (e) {
             this.lastSavedText = null;
           }
+        }
+      }
+
+      // Dirty (unsaved-changes) indicator (Phase P5-02).
+      //
+      // `baselineText` is "the text as of the last explicit save, file
+      // open, or document clear." Polled every second (more responsive
+      // than AutoSave's 3s cadence feels appropriate for a UI indicator
+      // the user is looking at, rather than a background safety net) and
+      // compared against the live text; a mismatch means "dirty."
+      class DirtyTracker {
+        static POLL_MS = 1000;
+
+        constructor(editor) {
+          this.editor = editor;
+          this.baselineText = null;
+          this.isDirty = false;
+          this.timer = null;
+          this.dot = document.getElementById("dirty-indicator");
+        }
+
+        start() {
+          if (this.timer) return;
+          this.timer = setInterval(() => this.check(), DirtyTracker.POLL_MS);
+        }
+
+        check() {
+          if (!this.editor || this.baselineText === null) return;
+          let text;
+          try {
+            text = this.editor.get_text();
+          } catch (e) {
+            return;
+          }
+          this.setDirty(text !== this.baselineText);
+        }
+
+        setDirty(dirty) {
+          if (dirty === this.isDirty) return;
+          this.isDirty = dirty;
+          if (this.dot) {
+            this.dot.classList.toggle("hidden", !dirty);
+          }
+        }
+
+        // Re-baseline to the current text and clear the dirty flag.
+        // Called after an explicit save, a successful file open, and
+        // clearing the document - all "this is now the known-good
+        // state" moments. Deliberately *not* called after restoring an
+        // auto-save draft (P2-05): a restored draft is recovered
+        // unsaved work, not a saved state.
+        markClean() {
+          try {
+            this.baselineText = this.editor ? this.editor.get_text() : null;
+          } catch (e) {
+            this.baselineText = null;
+          }
+          this.setDirty(false);
         }
       }
 
@@ -1899,6 +2331,13 @@
         }
 
         async handleDroppedFile(file) {
+          // Same unsaved-changes guard as `openFile()` (P5-02) - drag
+          // and drop is another way to discard the current document.
+          if (dirtyTracker && dirtyTracker.isDirty) {
+            if (!confirm("You have unsaved changes. Open a different file anyway?")) {
+              return;
+            }
+          }
           try {
             // Enforce file size limit (10MB)
             if (file.size > 10 * 1024 * 1024) {
@@ -1978,6 +2417,7 @@
             this.downloadBlob(blob, filename);
             this.closeSaveModal();
             if (autoSaveManager) autoSaveManager.clearDraft();
+            if (dirtyTracker) dirtyTracker.markClean();
             updateStatus(`Saved as ${filename}`);
           } catch (e) {
             console.error("Save TXT error:", e);
@@ -2019,6 +2459,7 @@
             this.downloadBlob(blob, filename);
             this.closeSaveModal();
             if (autoSaveManager) autoSaveManager.clearDraft();
+            if (dirtyTracker) dirtyTracker.markClean();
             updateStatus(`Saved as ${filename}`);
           } catch (e) {
             console.error("Save UNS error:", e);
@@ -2068,6 +2509,15 @@
         }
 
         openFile() {
+          // Guard against silently discarding unsaved work (P5-02).
+          // Auto-save (P2-05) already protects against total loss, but
+          // a confirm here avoids the surprise of the current view
+          // suddenly changing out from under an unsaved edit.
+          if (dirtyTracker && dirtyTracker.isDirty) {
+            if (!confirm("You have unsaved changes. Open a different file anyway?")) {
+              return;
+            }
+          }
           // Trigger file input click (opens native file picker)
           this.fileInput.click();
         }
@@ -2119,6 +2569,7 @@
           // Simple: just set the text, keep current settings
           this.editor.set_text(text);
           if (autoSaveManager) autoSaveManager.clearDraft();
+            if (dirtyTracker) dirtyTracker.markClean();
           updateStatus(`Opened ${filename} (plain text)`);
         }
 
@@ -2165,6 +2616,7 @@
             }
 
             if (autoSaveManager) autoSaveManager.clearDraft();
+            if (dirtyTracker) dirtyTracker.markClean();
             updateStatus(`Opened ${filename} (with settings)`);
 
             // Log metadata for debugging
@@ -2859,7 +3311,7 @@
           let bufferedFormatControl = null; // Buffer for U+202F or U+180E
 
           // Initialize WASM with cache-busting parameter
-          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=6" });
+          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=7" });
 
           // Setup canvas
           const { width, height } = resizeCanvas();
@@ -2884,6 +3336,34 @@
             } catch (e) {
               console.error("Failed to load saved settings:", e);
             }
+          } else if (
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches
+          ) {
+            // P4-03: first-ever visit (nothing saved yet) - honor the
+            // OS/browser dark-mode preference by applying the
+            // "Default Dark" built-in theme instead of the paper-like
+            // light default. Persisted immediately so this is a
+            // one-time decision, not re-evaluated on every load (a user
+            // who explicitly picks a different theme afterwards should
+            // stick with it even if their OS preference changes later).
+            try {
+              const themes = JSON.parse(editor.list_themes());
+              const dark = themes.find((t) => t.id === "default-dark");
+              if (dark) {
+                const current = JSON.parse(editor.get_settings_json());
+                const next = {
+                  ...current,
+                  appearance: dark.appearance,
+                  editor: { ...current.editor, theme_id: "default-dark" },
+                };
+                editor.set_settings_json(JSON.stringify(next));
+                localStorage.setItem("uns-editor-settings", JSON.stringify(next));
+                updateStatus("Applied dark theme (system preference)");
+              }
+            } catch (e) {
+              console.error("Failed to apply system dark theme:", e);
+            }
           }
 
           // Initialize settings modal
@@ -2900,6 +3380,22 @@
 
           // Initialize find & replace panel (Phase P2-03)
           const findReplacePanel = new FindReplacePanel(editor);
+
+          // Initialize the dirty indicator (Phase P5-02). Baseline to
+          // whatever text is on screen right now (the random greeting,
+          // or nothing) *before* the draft-recovery banner below can
+          // possibly change it - restoring a draft should show up as
+          // dirty (see `DirtyTracker.markClean`'s doc comment).
+          dirtyTracker = new DirtyTracker(editor);
+          dirtyTracker.markClean();
+          dirtyTracker.start();
+
+          window.addEventListener("beforeunload", (e) => {
+            if (dirtyTracker && dirtyTracker.isDirty) {
+              e.preventDefault();
+              e.returnValue = "";
+            }
+          });
 
           // Initialize auto-save and offer draft recovery (Phase P2-05).
           // Must run after settings are loaded (above) so a restored
@@ -2987,6 +3483,20 @@
               } else {
                 findReplacePanel.next();
               }
+              return;
+            }
+
+            // Ctrl+= / Ctrl+- (Cmd+= / Cmd+- on macOS) - Zoom font size
+            // in/out (Phase P8-04). `=` rather than `+` because that's
+            // the un-shifted key browsers themselves use for zoom.
+            if ((e.ctrlKey || e.metaKey) && (e.key === "=" || e.key === "+")) {
+              e.preventDefault();
+              adjustFontSize(2);
+              return;
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === "-") {
+              e.preventDefault();
+              adjustFontSize(-2);
               return;
             }
 
@@ -3560,7 +4070,16 @@
 
           setupButton("clear-btn", () => {
             if (editor) {
+              // Unsaved-changes guard (P5-02), same wording/behavior as
+              // the Open File guard.
+              if (dirtyTracker && dirtyTracker.isDirty) {
+                if (!confirm("You have unsaved changes. Clear the document anyway?")) {
+                  return;
+                }
+              }
               editor.set_text("");
+              if (autoSaveManager) autoSaveManager.clearDraft();
+              if (dirtyTracker) dirtyTracker.markClean();
               updateStatus("Text cleared");
               // Focus canvas after action
               if (isMobileDevice) {

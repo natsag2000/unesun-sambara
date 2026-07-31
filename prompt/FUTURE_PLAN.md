@@ -128,16 +128,18 @@ Extend the already-deep Mongolian support.
 
 ---
 
-## Phase P4 — Theming and appearance
+## Phase P4 — Theming and appearance `[x]`
 
-- **P4-01** `[ ]` **M** — Theme presets
-  - New `src/config/themes.rs` with built-in themes: Default Dark, Default Light, High Contrast, Solarized Dark, Mongolian Parchment. Theme dropdown at the top of the Color tab. Selecting a preset populates all color fields; subsequent edits create an implicit "Custom" theme.
+Impl log: [`DOC/IMPL/PHASE_4_IMPL.md`](../DOC/IMPL/PHASE_4_IMPL.md) · Patch: `patch/Phase_4.patch` (also covers P8-04 and P5-02, done in the same session)
 
-- **P4-02** `[ ]` **S** — Import and export theme JSON
-  - Buttons in the Color tab that round-trip theme objects as downloadable `.json` files (reuse the `downloadBlob` helper from `FileManager`).
+- **P4-01** `[x]` **M** — Theme presets
+  - New `src/config/themes.rs` with built-in themes: Default Light, Default Dark, High Contrast, Solarized Dark, Mongolian Parchment (colors only — fonts are untouched by theme switching, a scope decision made before starting). Theme dropdown at the top of the Color tab, plus a new "Advanced colors" section exposing `cursor_color`/`selection_color`/`gutter_background`/`line_number_color` (deferred from P0-03). Selecting a preset populates all color fields; subsequent edits create an implicit "Custom" theme. Fixed a latent bug along the way: `color_serde` used to silently drop alpha on every save, making `selection_color` fully opaque the first time settings were ever saved.
 
-- **P4-03** `[ ]` **S** — Detect `prefers-color-scheme` on first load
-  - If no saved settings exist, pick Default Dark or Default Light based on `matchMedia('(prefers-color-scheme: dark)')`.
+- **P4-02** `[x]` **S** — Import and export theme JSON
+  - Buttons in the Color tab round-trip the six live color fields as a downloadable `.json` file. Import accepts either `{ name, appearance }` or a bare `appearance` object.
+
+- **P4-03** `[x]` **S** — Detect `prefers-color-scheme` on first load
+  - If no saved settings exist yet, applies the "Default Dark" preset when `matchMedia('(prefers-color-scheme: dark)')` matches; persisted immediately so it's a one-time decision.
 
 ---
 
@@ -146,8 +148,8 @@ Extend the already-deep Mongolian support.
 - **P5-01** `[ ]` **M** — Recent files list
   - Store the last 10 opened filenames (plus a short content hash) in localStorage. Surface as a submenu or recent-files section under the Open button.
 
-- **P5-02** `[ ]` **M** — Dirty indicator and unsaved-changes warning
-  - Track the hash of the last saved content. When the current content differs, show a dot next to the title and warn on `beforeunload`.
+- **P5-02** `[x]` **M** — Dirty indicator and unsaved-changes warning
+  - Impl log: [`DOC/IMPL/PHASE_4_IMPL.md`](../DOC/IMPL/PHASE_4_IMPL.md). `DirtyTracker` compares live text against a baseline (set on load/save/open/clear) rather than hashing — equivalent correctness, no collision risk. Shows a dot next to the logo, warns on `beforeunload`, and (scope extension agreed before starting) also confirms before Open File / drag-drop-open / Clear Document discard unsaved changes. Restoring an auto-save draft (P2-05) deliberately does *not* clear the dirty flag.
 
 - **P5-03** `[ ]` **S** — `.uns` v1.1 — add view state
   - Additive schema change: embed `view.scrollOffset` and `view.selection` under the existing `content` section. Keep the major version at 1 so older files still open.
@@ -198,8 +200,8 @@ Items inherited from the original `IMPLEMENTATION_SUMMARY.md` deferred list, plu
 
 - **P8-03** `[ ]` **M** — Multiple documents / tab strip
 
-- **P8-04** `[ ]` **S** — Zoom shortcut
-  - `Ctrl+=` and `Ctrl+-` bump font size up and down. Very cheap; noticeable UX gain.
+- **P8-04** `[x]` **S** — Zoom shortcut
+  - Impl log: [`DOC/IMPL/PHASE_4_IMPL.md`](../DOC/IMPL/PHASE_4_IMPL.md). `Ctrl+=` and `Ctrl+-` bump font size up and down, scaling line height proportionally (preserving whatever ratio was already set, rather than resetting to the settings modal's fixed 1.25× default).
 
 ---
 
@@ -207,15 +209,17 @@ Items inherited from the original `IMPLEMENTATION_SUMMARY.md` deferred list, plu
 
 1. ~~**Phase P0** foundation cleanup~~ — done (commit `0e89edb`).
 2. ~~**Phase P1** plugin architecture~~ — done (commit `f546125`).
-3. **P2-01 undo**, **P2-02 line numbers**, **P2-03 find and replace**, **P2-05 auto-save**. Highest user impact. **← next.**
-4. **Phase P4 themes**, **P8-04 zoom**, **P5-02 dirty indicator**. UX polish.
-5. **Phase P6 keybindings**, **P3-03 Latin-map editor**, **Phase P7** performance and tests. Power-user and quality.
+3. ~~**P2-01 undo**, **P2-02 line numbers**, **P2-03 find and replace**, **P2-05 auto-save**, **P2-04 word wrap**~~ — done (all of Phase P2 shipped together; see `DOC/IMPL/PHASE_2_IMPL.md`).
+4. ~~**Phase P4 themes**, **P8-04 zoom**, **P5-02 dirty indicator**~~ — done (see `DOC/IMPL/PHASE_4_IMPL.md`).
+5. **Phase P6 keybindings**, **P3-03 Latin-map editor**, **Phase P7** performance and tests. Power-user and quality. **← next.**
 
 ## Open questions (resolutions recorded)
 
 1. **Plugin architecture before quick wins, or after?** — **Resolved (P1 first).** The user chose to do all of P1 before touching P2, so the event bus and plugin registry are already in place when undo/find land.
 2. **Scope of the first milestone.** — **Resolved (P0 + P1).** Both phases shipped as committed milestones. P2 will be scoped separately when it starts.
 3. **Backlog adjustments.** — No adjustments requested through P1. Any additions/removals should be captured here with a rationale as they come up.
+4. **P2 scope: all five items in one session, or split?** — **Resolved (all five together).** The user chose to do all of P2-01..P2-05 in one pass, with typing debounced into coalesced undo entries (rather than one undo step per keystroke). No further scope splits were requested.
+5. **P4/P8-04/P5-02 scope: all together, or split?** — **Resolved (all together).** Same pattern as P2. Two sub-decisions recorded: (a) themes cover colors only, not fonts, and "Default Light" reproduces the existing P0-01 default exactly; (b) the dirty indicator also confirms before Open/Clear discard unsaved changes (an extension beyond the plan's literal "dot + beforeunload" text), not just the passive dot + browser warning.
 
 ## Resuming after a context loss
 
