@@ -3,7 +3,7 @@ target/
 Cargo.lock
 
 # WASM build output
-# pkg/
+pkg/
 
 # Editor files
 *.swp
@@ -22,5 +22,11 @@ Cargo.lock
 # node_modules
 node_modules
 
+# Playwright (P7-04) - test run artifacts, not source
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
 # prompts
-prompt/
+# prompt/

@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>unesun sambarA - Mongolian Text Editor</title>
-    <link rel="stylesheet" href="dist/output.css?v=9" />
+    <link rel="stylesheet" href="dist/output.css?v=12" />
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0"
@@ -203,13 +203,27 @@
         id="header"
         class="bg-editor-header px-5 py-1.5 border-b border-editor-border flex justify-between items-center"
       >
-        <img
-          id="logo-btn"
-          src="assets/logo.png"
-          alt="UNS Editor"
-          style="height: 28px; width: auto; cursor: pointer"
-          title="Version Information"
-        />
+        <div class="relative" style="height: 28px">
+          <img
+            id="logo-btn"
+            src="assets/logo.png"
+            alt="UNS Editor"
+            style="height: 28px; width: auto; cursor: pointer"
+            title="Version Information"
+          />
+          <!--
+            Dirty indicator (Phase P5-02). Aggregate: shown when *any*
+            open tab differs from its last-saved baseline (P8-03 gave
+            each tab its own dot for the per-tab state; this one next to
+            the logo answers "is there unsaved work anywhere"). See the
+            `TabManager` class.
+          -->
+          <span
+            id="dirty-indicator"
+            class="hidden absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-amber-400 border border-editor-header"
+            title="Unsaved changes in one or more tabs"
+          ></span>
+        </div>
         <div id="controls" class="flex gap-[10px] items-center">
           <!-- Always visible: Toggle Input Mode -->
           <button
@@ -325,6 +339,20 @@
         class="bg-red-400 text-editor-bg px-5 py-1 text-[10px] hidden"
       ></div>
 
+      <!--
+        Tab strip (Phase P8-03). Entirely rendered by `TabManager` -
+        every open document (each with its own content/cursor/dirty
+        state; settings/theme stay global) plus a trailing "+" button.
+        Supersedes the P2-05 single-document auto-save banner: instead
+        of prompting to restore one old draft, every tab's content is
+        continuously persisted and the whole strip reappears silently
+        on reload.
+      -->
+      <div
+        id="tab-strip"
+        class="flex items-stretch bg-editor-header border-b border-editor-border overflow-x-auto"
+      ></div>
+
       <div
         id="canvas-container"
         class="flex-1 relative overflow-hidden bg-editor-bg"
@@ -338,6 +366,86 @@
           ></div>
           <p>Loading unesun sambarA</p>
         </div>
+
+        <!--
+          Find & Replace panel (Phase P2-03). Slides down from the top of
+          the canvas area. Backed by the `editor.find.*` commands
+          contributed by `FindReplacePlugin` (`src/plugins/find_replace.rs`),
+          invoked via `editor.run_command(id, args_json)`.
+        -->
+        <div
+          id="find-panel"
+          class="absolute top-0 left-0 right-0 z-40 bg-editor-header border-b border-editor-border shadow-lg hidden"
+        >
+          <div class="flex flex-wrap items-center gap-2 px-3 py-2">
+            <input
+              id="find-input"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Find"
+              class="flex-1 min-w-[120px] bg-editor-bg text-editor-text border border-editor-border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-editor-accent"
+            />
+            <span id="find-count" class="text-xs text-editor-text opacity-80 whitespace-nowrap px-1"
+              >0/0</span
+            >
+            <button
+              id="find-prev-btn"
+              class="toolbar-btn flex"
+              style="width: 32px; height: 32px; font-size: 16px"
+              title="Previous match (Shift+F3)"
+            >
+              <span class="material-symbols-rounded" style="font-size: 18px">arrow_upward</span>
+            </button>
+            <button
+              id="find-next-btn"
+              class="toolbar-btn flex"
+              style="width: 32px; height: 32px; font-size: 16px"
+              title="Next match (F3)"
+            >
+              <span class="material-symbols-rounded" style="font-size: 18px">arrow_downward</span>
+            </button>
+            <label class="flex items-center gap-1 text-xs text-editor-text whitespace-nowrap" title="Case sensitive">
+              <input type="checkbox" id="find-case-sensitive" class="accent-editor-accent" /> Aa
+            </label>
+            <label class="flex items-center gap-1 text-xs text-editor-text whitespace-nowrap" title="Whole word">
+              <input type="checkbox" id="find-whole-word" class="accent-editor-accent" /> Word
+            </label>
+            <label class="flex items-center gap-1 text-xs text-editor-text whitespace-nowrap" title="Regular expression">
+              <input type="checkbox" id="find-use-regex" class="accent-editor-accent" /> .*
+            </label>
+            <button
+              id="find-close-btn"
+              class="text-editor-text hover:text-white text-2xl leading-none px-1"
+              title="Close (Esc)"
+            >
+              &times;
+            </button>
+          </div>
+          <div id="find-replace-row" class="flex flex-wrap items-center gap-2 px-3 pb-2 hidden">
+            <input
+              id="replace-input"
+              type="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="Replace"
+              class="flex-1 min-w-[120px] bg-editor-bg text-editor-text border border-editor-border rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-editor-accent"
+            />
+            <button
+              id="replace-one-btn"
+              class="bg-editor-accent text-white px-3 py-1.5 rounded text-xs hover:bg-blue-600 active:bg-blue-700 transition-colors whitespace-nowrap"
+            >
+              Replace
+            </button>
+            <button
+              id="replace-all-btn"
+              class="bg-editor-accent text-white px-3 py-1.5 rounded text-xs hover:bg-blue-600 active:bg-blue-700 transition-colors whitespace-nowrap"
+            >
+              Replace All
+            </button>
+          </div>
+        </div>
+
         <canvas
           id="editor-canvas"
           class="block w-full h-full cursor-text"
@@ -402,6 +510,12 @@
             class="settings-tab flex-1 px-6 py-3 text-sm font-medium text-editor-text hover:text-white hover:bg-editor-bg transition-colors border-b-2 border-transparent"
           >
             Color
+          </button>
+          <button
+            id="editor-tab-btn"
+            class="settings-tab flex-1 px-6 py-3 text-sm font-medium text-editor-text hover:text-white hover:bg-editor-bg transition-colors border-b-2 border-transparent"
+          >
+            Editor
           </button>
         </div>
 
@@ -535,6 +649,22 @@
           <!-- Color Tab -->
           <div id="color-tab" class="settings-tab-content p-6 hidden">
             <div style="display: flex; flex-direction: column; gap: 1rem">
+              <!-- Theme presets (P4-01) -->
+              <div class="space-y-2">
+                <label class="block text-xs font-medium text-editor-text-dim">Theme</label>
+                <div class="flex gap-2">
+                  <select
+                    id="theme-select"
+                    class="flex-1 bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-editor-accent"
+                  >
+                    <!-- Populated from editor.list_themes() at runtime, plus a trailing "Custom" option. -->
+                  </select>
+                </div>
+                <p class="text-editor-text-dim text-xs">
+                  Picking a theme fills in every color below. Editing any color afterwards switches to "Custom".
+                </p>
+              </div>
+
               <div style="display: flex; flex-direction: column; gap: 0.5rem">
                 <label
                   style="
@@ -606,6 +736,97 @@
                   />
                 </div>
               </div>
+
+              <!-- Advanced colors (deferred from P0-03, exposed now that P4 themes give them a reason to be visible). -->
+              <details class="border border-editor-border rounded">
+                <summary class="px-3 py-2 text-sm text-editor-text cursor-pointer select-none">
+                  Advanced colors
+                </summary>
+                <div class="p-3 pt-1 space-y-3">
+                  <div class="space-y-1">
+                    <label class="block text-xs text-editor-text-dim">Cursor Color</label>
+                    <div class="flex gap-2">
+                      <input type="color" id="cursor-color" value="#0d0d0d" class="w-14 h-9 border border-editor-border rounded cursor-pointer p-0 bg-transparent" />
+                      <input type="text" id="cursor-color-hex" class="flex-1 min-w-0 bg-editor-bg text-editor-text border border-editor-border rounded px-2 py-1 text-sm font-mono" />
+                    </div>
+                  </div>
+                  <div class="space-y-1">
+                    <label class="block text-xs text-editor-text-dim">Selection Color</label>
+                    <div class="flex gap-2">
+                      <input type="color" id="selection-color" value="#5078c8" class="w-14 h-9 border border-editor-border rounded cursor-pointer p-0 bg-transparent" />
+                      <input type="text" id="selection-color-hex" class="flex-1 min-w-0 bg-editor-bg text-editor-text border border-editor-border rounded px-2 py-1 text-sm font-mono" />
+                    </div>
+                  </div>
+                  <div class="space-y-1">
+                    <label class="block text-xs text-editor-text-dim">Gutter Background</label>
+                    <div class="flex gap-2">
+                      <input type="color" id="gutter-background-color" value="#252526" class="w-14 h-9 border border-editor-border rounded cursor-pointer p-0 bg-transparent" />
+                      <input type="text" id="gutter-background-color-hex" class="flex-1 min-w-0 bg-editor-bg text-editor-text border border-editor-border rounded px-2 py-1 text-sm font-mono" />
+                    </div>
+                  </div>
+                  <div class="space-y-1">
+                    <label class="block text-xs text-editor-text-dim">Line Number Color</label>
+                    <div class="flex gap-2">
+                      <input type="color" id="line-number-color" value="#858585" class="w-14 h-9 border border-editor-border rounded cursor-pointer p-0 bg-transparent" />
+                      <input type="text" id="line-number-color-hex" class="flex-1 min-w-0 bg-editor-bg text-editor-text border border-editor-border rounded px-2 py-1 text-sm font-mono" />
+                    </div>
+                  </div>
+                </div>
+              </details>
+
+              <!-- Theme import/export (P4-02) -->
+              <div class="flex gap-2">
+                <button
+                  id="theme-export-btn"
+                  class="flex-1 bg-gray-600 text-white px-3 py-2 rounded text-xs hover:bg-gray-700 transition-colors"
+                >
+                  Export Theme JSON
+                </button>
+                <button
+                  id="theme-import-btn"
+                  class="flex-1 bg-gray-600 text-white px-3 py-2 rounded text-xs hover:bg-gray-700 transition-colors"
+                >
+                  Import Theme JSON
+                </button>
+                <input type="file" id="theme-import-input" accept=".json" style="display: none" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Editor Tab (P2-02, P2-04) -->
+          <div id="editor-tab" class="settings-tab-content p-6 hidden">
+            <div class="space-y-4">
+              <label
+                class="flex items-center justify-between gap-3 bg-editor-bg border border-editor-border rounded px-4 py-3 cursor-pointer"
+              >
+                <span>
+                  <span class="block text-sm text-editor-text">Show line numbers</span>
+                  <span class="block text-xs text-editor-text opacity-70"
+                    >Left gutter in horizontal mode, top strip of column numbers in vertical mode</span
+                  >
+                </span>
+                <input
+                  type="checkbox"
+                  id="show-line-numbers"
+                  class="w-5 h-5 accent-editor-accent"
+                />
+              </label>
+
+              <label
+                class="flex items-center justify-between gap-3 bg-editor-bg border border-editor-border rounded px-4 py-3 cursor-pointer"
+              >
+                <span>
+                  <span class="block text-sm text-editor-text">Word wrap</span>
+                  <span class="block text-xs text-editor-text opacity-70"
+                    >Wrap long lines to fit the visible width instead of scrolling</span
+                  >
+                </span>
+                <input
+                  type="checkbox"
+                  id="word-wrap"
+                  class="w-5 h-5 accent-editor-accent"
+                />
+              </label>
             </div>
           </div>
         </div>
@@ -818,8 +1039,40 @@
       style="display: none"
     />
 
+    <!--
+      Command palette (Phase P1-03).
+      Opened with Ctrl+Shift+P. Lists commands returned by the Rust
+      plugin registry (`WasmEditor::list_commands()`), fuzzy-matched on
+      the query text. Selecting a command calls
+      `WasmEditor::run_command(id, "")`.
+    -->
+    <div
+      id="palette-modal"
+      class="fixed inset-0 bg-black bg-opacity-50 hidden items-start justify-center z-50 pt-24"
+    >
+      <div class="bg-editor-header rounded-lg shadow-2xl w-full max-w-lg mx-4 flex flex-col overflow-hidden">
+        <div class="px-3 pt-3">
+          <input
+            type="text"
+            id="palette-input"
+            placeholder="Type a command..."
+            autocomplete="off"
+            spellcheck="false"
+            class="w-full bg-editor-bg text-editor-text border border-editor-border rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-editor-accent"
+          />
+        </div>
+        <ul
+          id="palette-list"
+          class="max-h-80 overflow-y-auto py-2"
+        ></ul>
+        <div class="px-3 py-2 text-xs text-editor-text opacity-70 border-t border-editor-border">
+          Enter to run ┬À Esc to close ┬À ÔåæÔåô to navigate
+        </div>
+      </div>
+    </div>
+
     <script type="module">
-      import init, { WasmEditor } from "./pkg/uns_editor.js?v=5";
+      import init, { WasmEditor } from "./pkg/uns_editor.js?v=7";
 
       let editor = null;
       let animationId = null;
@@ -828,6 +1081,14 @@
       let renderPaused = false;
 
       let errorTimeout = null;
+
+      // P8-03: tab manager, created once the editor is ready. Kept at
+      // module scope (like `editor`) so `FileManager` and the
+      // clear-document handler can create tabs / query dirty state
+      // without a constructor dependency on it. Supersedes the P2-05
+      // `autoSaveManager` and P5-02 `dirtyTracker` module-scope
+      // variables that used to live here.
+      let tabManager = null;
 
       // Mongolian Unicode code point names (U+1800 to U+18AA)
       const mongolianCodepoints = {
@@ -1029,6 +1290,20 @@
         return isLightColor(backgroundColor) ? "#333333" : "#ffffff";
       }
 
+      // P4-01: `<input type="color">` only ever holds 6-digit RGB hex,
+      // but Rust's `AppearanceSettings` colors may carry an 8-digit
+      // alpha suffix (see the `color_serde` fix in
+      // `src/config/settings.rs`). These two helpers split/strip that
+      // suffix so the color picker UI and the alpha-preserving JSON
+      // round trip can coexist.
+      function to6HexColor(hex) {
+        return hex ? hex.slice(0, 7) : "#000000";
+      }
+
+      function alphaSuffixOf(hex) {
+        return hex && hex.length === 9 ? hex.slice(7, 9) : "";
+      }
+
       function showError(message, duration = 5000) {
         const errorEl = document.getElementById("error");
         errorEl.textContent = "⚠️ Error: " + message;
@@ -1059,6 +1334,31 @@
 
       function updateStatus(message) {
         document.getElementById("status-message").textContent = message;
+      }
+
+      // P8-04: bump font size (and proportionally, line height, so the
+      // two stay in whatever ratio the user already had) via
+      // Ctrl+=/Ctrl+-. Goes through the same
+      // get_settings_json/set_settings_json round trip the settings
+      // modal uses, so it stays merge-safe with any other pending field.
+      function adjustFontSize(delta) {
+        if (!editor) return;
+        try {
+          const settings = JSON.parse(editor.get_settings_json());
+          const oldSize = settings.fonts.font_size;
+          const newSize = Math.max(8, Math.min(300, oldSize + delta));
+          if (newSize === oldSize) return;
+
+          const ratio = newSize / oldSize;
+          settings.fonts.font_size = newSize;
+          settings.fonts.line_height = Math.round(settings.fonts.line_height * ratio);
+
+          editor.set_settings_json(JSON.stringify(settings));
+          localStorage.setItem("uns-editor-settings", JSON.stringify(settings));
+          updateStatus(`Font size: ${newSize}px`);
+        } catch (e) {
+          console.error("adjustFontSize failed:", e);
+        }
       }
 
       function resizeCanvas() {
@@ -1185,7 +1485,31 @@
           this.editor = editor;
           this.modal = document.getElementById("settings-modal");
           this.initElements();
+          this.loadThemes();
           this.attachEventListeners();
+        }
+
+        // Populate `this.themes` and the theme <select> from Rust
+        // (P4-01). Called once at construction; the list is static for
+        // the lifetime of the page (built-in themes are compiled in).
+        loadThemes() {
+          try {
+            this.themes = JSON.parse(this.editor.list_themes());
+          } catch (e) {
+            console.error("Failed to load themes:", e);
+            this.themes = [];
+          }
+          this.elements.themeSelect.innerHTML = "";
+          for (const theme of this.themes) {
+            const opt = document.createElement("option");
+            opt.value = theme.id;
+            opt.textContent = theme.name;
+            this.elements.themeSelect.appendChild(opt);
+          }
+          const customOpt = document.createElement("option");
+          customOpt.value = "custom";
+          customOpt.textContent = "Custom";
+          this.elements.themeSelect.appendChild(customOpt);
         }
 
         initElements() {
@@ -1206,7 +1530,37 @@
             textColorHex: document.getElementById("text-color-hex"),
             backgroundColor: document.getElementById("background-color"),
             backgroundColorHex: document.getElementById("background-color-hex"),
+            showLineNumbers: document.getElementById("show-line-numbers"),
+            wordWrap: document.getElementById("word-wrap"),
+            themeSelect: document.getElementById("theme-select"),
+            cursorColor: document.getElementById("cursor-color"),
+            cursorColorHex: document.getElementById("cursor-color-hex"),
+            selectionColor: document.getElementById("selection-color"),
+            selectionColorHex: document.getElementById("selection-color-hex"),
+            gutterBackgroundColor: document.getElementById("gutter-background-color"),
+            gutterBackgroundColorHex: document.getElementById("gutter-background-color-hex"),
+            lineNumberColor: document.getElementById("line-number-color"),
+            lineNumberColorHex: document.getElementById("line-number-color-hex"),
+            themeExportBtn: document.getElementById("theme-export-btn"),
+            themeImportBtn: document.getElementById("theme-import-btn"),
+            themeImportInput: document.getElementById("theme-import-input"),
           };
+
+          // Advanced colors may carry alpha (e.g. selection_color's
+          // default is semi-transparent). Plain `<input type="color">`
+          // only ever holds 6-digit RGB, so we track each field's alpha
+          // byte (as a 2-digit hex suffix) separately and re-append it
+          // on save, unless the field's own theme/loaded value changes
+          // it. See the `color_serde` alpha round-trip fix in
+          // `src/config/settings.rs` (P4-01).
+          this.colorAlpha = {
+            selection_color: "80", // matches AppearanceSettings::default()
+          };
+
+          // Cached from `editor.list_themes()`; populated once in the
+          // constructor, applied whenever the theme dropdown changes.
+          this.themes = [];
+          this.activeThemeId = "custom";
 
           this.buttons = {
             open: document.getElementById("settings-btn"),
@@ -1219,8 +1573,10 @@
           this.tabs = {
             fontBtn: document.getElementById("font-tab-btn"),
             colorBtn: document.getElementById("color-tab-btn"),
+            editorBtn: document.getElementById("editor-tab-btn"),
             fontPanel: document.getElementById("font-tab"),
             colorPanel: document.getElementById("color-tab"),
+            editorPanel: document.getElementById("editor-tab"),
           };
         }
 
@@ -1243,6 +1599,7 @@
           // Tab switching
           addHandler(this.tabs.fontBtn, () => this.switchTab("font"));
           addHandler(this.tabs.colorBtn, () => this.switchTab("color"));
+          addHandler(this.tabs.editorBtn, () => this.switchTab("editor"));
 
           // Helper function to update font size from any control
           const updateFontSize = (size) => {
@@ -1334,31 +1691,204 @@
           this.elements.textColor.addEventListener("input", (e) => {
             this.elements.textColorHex.value = e.target.value;
             this.elements.fontPreview.style.color = e.target.value;
+            this.markCustom();
           });
 
           this.elements.textColorHex.addEventListener("input", (e) => {
             if (/^#[0-9A-F]{6}$/i.test(e.target.value)) {
               this.elements.textColor.value = e.target.value;
               this.elements.fontPreview.style.color = e.target.value;
+              this.markCustom();
             }
           });
 
           this.elements.backgroundColor.addEventListener("input", (e) => {
             this.elements.backgroundColorHex.value = e.target.value;
             this.elements.fontPreview.style.backgroundColor = e.target.value;
+            this.markCustom();
           });
 
           this.elements.backgroundColorHex.addEventListener("input", (e) => {
             if (/^#[0-9A-F]{6}$/i.test(e.target.value)) {
               this.elements.backgroundColor.value = e.target.value;
               this.elements.fontPreview.style.backgroundColor = e.target.value;
+              this.markCustom();
             }
           });
+
+          // Advanced colors (P0-03 / P4-01): same color-picker <-> hex
+          // text sync pattern as text/background above, generalized
+          // over the four extra fields so they share one bit of code.
+          const advancedFields = [
+            ["cursorColor", "cursorColorHex"],
+            ["selectionColor", "selectionColorHex"],
+            ["gutterBackgroundColor", "gutterBackgroundColorHex"],
+            ["lineNumberColor", "lineNumberColorHex"],
+          ];
+          for (const [colorKey, hexKey] of advancedFields) {
+            this.elements[colorKey].addEventListener("input", (e) => {
+              this.elements[hexKey].value = e.target.value;
+              this.markCustom();
+            });
+            this.elements[hexKey].addEventListener("input", (e) => {
+              if (/^#[0-9A-F]{6}$/i.test(e.target.value)) {
+                this.elements[colorKey].value = e.target.value;
+                this.markCustom();
+              }
+            });
+          }
+
+          // Theme dropdown (P4-01)
+          this.elements.themeSelect.addEventListener("change", (e) => {
+            if (e.target.value === "custom") {
+              this.activeThemeId = "custom";
+              return;
+            }
+            this.applyTheme(e.target.value);
+          });
+
+          // Theme import / export (P4-02)
+          addHandler(this.elements.themeExportBtn, () => this.exportTheme());
+          addHandler(this.elements.themeImportBtn, () =>
+            this.elements.themeImportInput.click(),
+          );
+          this.elements.themeImportInput.addEventListener("change", (e) =>
+            this.importTheme(e),
+          );
 
           // Close on outside click
           this.modal.addEventListener("click", (e) => {
             if (e.target === this.modal) this.close();
           });
+        }
+
+        // Any manual color edit (outside of `applyTheme` itself, guarded
+        // by `this.applyingTheme`) switches the dropdown to "Custom" -
+        // it no longer exactly matches the preset that was selected.
+        markCustom() {
+          if (this.applyingTheme) return;
+          this.activeThemeId = "custom";
+          this.elements.themeSelect.value = "custom";
+        }
+
+        // Populate every color field (main + advanced) from a theme's
+        // `appearance` object and select it in the dropdown. Shared by
+        // the dropdown's `change` handler and by `importTheme`.
+        applyThemeColors(themeId, appearance) {
+          this.applyingTheme = true;
+          try {
+            this.elements.textColor.value = to6HexColor(appearance.text_color);
+            this.elements.textColorHex.value = this.elements.textColor.value;
+            this.elements.backgroundColor.value = to6HexColor(appearance.background_color);
+            this.elements.backgroundColorHex.value = this.elements.backgroundColor.value;
+            this.elements.fontPreview.style.color = this.elements.textColor.value;
+            this.elements.fontPreview.style.backgroundColor = this.elements.backgroundColor.value;
+
+            const advanced = [
+              ["cursorColor", "cursorColorHex", "cursor_color"],
+              ["selectionColor", "selectionColorHex", "selection_color"],
+              ["gutterBackgroundColor", "gutterBackgroundColorHex", "gutter_background"],
+              ["lineNumberColor", "lineNumberColorHex", "line_number_color"],
+            ];
+            for (const [colorKey, hexKey, field] of advanced) {
+              const hex = appearance[field];
+              this.elements[colorKey].value = to6HexColor(hex);
+              this.elements[hexKey].value = this.elements[colorKey].value;
+              this.colorAlpha[field] = alphaSuffixOf(hex);
+            }
+
+            this.activeThemeId = themeId;
+            this.elements.themeSelect.value = themeId;
+          } finally {
+            this.applyingTheme = false;
+          }
+        }
+
+        applyTheme(themeId) {
+          const theme = this.themes.find((t) => t.id === themeId);
+          if (!theme) return;
+          this.applyThemeColors(theme.id, theme.appearance);
+          updateStatus(`Theme: ${theme.name}`);
+        }
+
+        // Export the *current* color fields (not necessarily a named
+        // built-in) as a downloadable theme JSON (P4-02).
+        exportTheme() {
+          try {
+            const appearance = this.collectAppearance();
+            const payload = {
+              name: this.activeThemeId === "custom" ? "Custom Theme" : this.themes.find((t) => t.id === this.activeThemeId)?.name || "Theme",
+              appearance,
+            };
+            const blob = new Blob([JSON.stringify(payload, null, 2)], {
+              type: "application/json;charset=utf-8",
+            });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "uns-theme.json";
+            a.style.display = "none";
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+              document.body.removeChild(a);
+              URL.revokeObjectURL(url);
+            }, 100);
+            updateStatus("Theme exported");
+          } catch (e) {
+            console.error("Theme export failed:", e);
+            showError("Failed to export theme: " + e.message);
+          }
+        }
+
+        importTheme(event) {
+          const file = event.target.files[0];
+          event.target.value = ""; // allow re-importing the same file later
+          if (!file) return;
+
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            try {
+              const parsed = JSON.parse(e.target.result);
+              const appearance = parsed.appearance || parsed; // accept a bare appearance object too
+              const required = [
+                "text_color",
+                "background_color",
+                "cursor_color",
+                "selection_color",
+                "gutter_background",
+                "line_number_color",
+              ];
+              for (const field of required) {
+                if (typeof appearance[field] !== "string") {
+                  throw new Error(`Missing or invalid "${field}"`);
+                }
+              }
+              this.applyThemeColors("custom", appearance);
+              updateStatus(`Imported theme${parsed.name ? ": " + parsed.name : ""}`);
+            } catch (err) {
+              console.error("Theme import failed:", err);
+              showError("Failed to import theme: " + err.message);
+            }
+          };
+          reader.onerror = () => showError("Failed to read theme file");
+          reader.readAsText(file);
+        }
+
+        // Read the six color fields back out as the hex strings
+        // `set_settings_json` expects, re-appending each field's tracked
+        // alpha suffix (see `this.colorAlpha` above).
+        collectAppearance() {
+          const withAlpha = (hex6, field) =>
+            hex6 + (this.colorAlpha[field] || "");
+          return {
+            text_color: this.elements.textColor.value,
+            background_color: this.elements.backgroundColor.value,
+            cursor_color: withAlpha(this.elements.cursorColor.value, "cursor_color"),
+            selection_color: withAlpha(this.elements.selectionColor.value, "selection_color"),
+            gutter_background: withAlpha(this.elements.gutterBackgroundColor.value, "gutter_background"),
+            line_number_color: withAlpha(this.elements.lineNumberColor.value, "line_number_color"),
+          };
         }
 
         open() {
@@ -1372,8 +1902,10 @@
           // Remove active class from all tabs and panels
           this.tabs.fontBtn.classList.remove("active");
           this.tabs.colorBtn.classList.remove("active");
+          this.tabs.editorBtn.classList.remove("active");
           this.tabs.fontPanel.classList.remove("active");
           this.tabs.colorPanel.classList.remove("active");
+          this.tabs.editorPanel.classList.remove("active");
 
           // Add active class to selected tab and panel
           if (tabName === "font") {
@@ -1382,6 +1914,9 @@
           } else if (tabName === "color") {
             this.tabs.colorBtn.classList.add("active");
             this.tabs.colorPanel.classList.add("active");
+          } else if (tabName === "editor") {
+            this.tabs.editorBtn.classList.add("active");
+            this.tabs.editorPanel.classList.add("active");
           }
         }
 
@@ -1420,16 +1955,41 @@
             this.elements.fontPreview.style.fontSize = `${settings.fonts.font_size}px`;
             this.elements.fontPreview.style.lineHeight = `${settings.fonts.line_height}px`;
 
-            this.elements.textColor.value = settings.appearance.text_color;
-            this.elements.textColorHex.value = settings.appearance.text_color;
-            this.elements.backgroundColor.value =
-              settings.appearance.background_color;
-            this.elements.backgroundColorHex.value =
-              settings.appearance.background_color;
-            this.elements.fontPreview.style.color =
-              settings.appearance.text_color;
+            this.elements.textColor.value = to6HexColor(settings.appearance.text_color);
+            this.elements.textColorHex.value = this.elements.textColor.value;
+            this.elements.backgroundColor.value = to6HexColor(
+              settings.appearance.background_color,
+            );
+            this.elements.backgroundColorHex.value = this.elements.backgroundColor.value;
+            this.elements.fontPreview.style.color = this.elements.textColor.value;
             this.elements.fontPreview.style.backgroundColor =
-              settings.appearance.background_color;
+              this.elements.backgroundColor.value;
+
+            // Advanced colors + their tracked alpha suffixes (P4-01).
+            const advanced = [
+              ["cursorColor", "cursorColorHex", "cursor_color"],
+              ["selectionColor", "selectionColorHex", "selection_color"],
+              ["gutterBackgroundColor", "gutterBackgroundColorHex", "gutter_background"],
+              ["lineNumberColor", "lineNumberColorHex", "line_number_color"],
+            ];
+            for (const [colorKey, hexKey, field] of advanced) {
+              const hex = settings.appearance[field];
+              this.elements[colorKey].value = to6HexColor(hex);
+              this.elements[hexKey].value = this.elements[colorKey].value;
+              this.colorAlpha[field] = alphaSuffixOf(hex);
+            }
+
+            this.elements.showLineNumbers.checked = !!settings.editor.show_line_numbers;
+            this.elements.wordWrap.checked = settings.editor.word_wrap !== false;
+
+            // Restore the theme dropdown's selection (purely cosmetic -
+            // `appearance` above is already the real state regardless of
+            // what this resolves to).
+            this.activeThemeId = settings.editor.theme_id || "custom";
+            const knownIds = this.themes.map((t) => t.id).concat(["custom"]);
+            this.elements.themeSelect.value = knownIds.includes(this.activeThemeId)
+              ? this.activeThemeId
+              : "custom";
           } catch (e) {
             console.error("Failed to load settings:", e);
           }
@@ -1437,24 +1997,31 @@
 
         save() {
           try {
+            // Merge on top of the current settings so that any field
+            // this modal doesn't expose is preserved instead of
+            // clobbered. See P0-02 and P0-03 in prompt/FUTURE_PLAN.md.
+            // As of P4-01 that's every `appearance` field is now
+            // exposed (main two + the four "Advanced" ones), but the
+            // merge stays defensive for whatever a future settings
+            // field turns out to be.
+            const current = JSON.parse(this.editor.get_settings_json());
             const settings = {
+              ...current,
               appearance: {
-                text_color: this.elements.textColor.value,
-                background_color: this.elements.backgroundColor.value,
-                cursor_color: getCursorColor(
-                  this.elements.backgroundColor.value,
-                ),
-                selection_color: "#5078c880",
-                gutter_background: "#252526",
-                line_number_color: "#858585",
+                ...current.appearance,
+                ...this.collectAppearance(),
               },
               fonts: {
+                ...current.fonts,
                 font_family: this.elements.fontFamily.value,
                 font_size: parseFloat(this.elements.fontSize.value),
                 line_height: parseFloat(this.elements.lineHeight.value),
               },
               editor: {
-                orientation: "vertical",
+                ...current.editor,
+                show_line_numbers: this.elements.showLineNumbers.checked,
+                word_wrap: this.elements.wordWrap.checked,
+                theme_id: this.activeThemeId,
               },
             };
 
@@ -1475,25 +2042,9 @@
         reset() {
           if (confirm("Reset all settings to defaults?")) {
             localStorage.removeItem("uns-editor-settings");
-            const defaults = {
-              appearance: {
-                text_color: "#c8c8c8",
-                background_color: "#2b2b2b",
-                cursor_color: getCursorColor("#2b2b2b"),
-                selection_color: "#5078c880",
-                gutter_background: "#252526",
-                line_number_color: "#858585",
-              },
-              fonts: {
-                font_family: "Noto Sans Mongolian",
-                font_size: 24,
-                line_height: 30,
-              },
-              editor: {
-                orientation: "vertical",
-              },
-            };
-            this.editor.set_settings_json(JSON.stringify(defaults));
+            // Rust is the single source of truth for defaults (P0-01).
+            const defaultsJson = this.editor.reset_to_defaults();
+            localStorage.setItem("uns-editor-settings", defaultsJson);
             this.loadSettings();
             updateStatus("Settings reset to defaults");
           }
@@ -1501,6 +2052,352 @@
       }
 
       // File Operations Management
+      // Multi-document tabs (Phase P8-03).
+      //
+      // Supersedes Phase P2-05's single-document `AutoSave` class and
+      // Phase P5-02's single-document `DirtyTracker` class - both are
+      // now per-tab concerns handled here instead. Design decisions
+      // (see DOC/IMPL/PHASE_8_03_IMPL.md for the full rationale):
+      //
+      // * Tabs are JS-level state layered on top of one shared
+      //   `WasmEditor`, not one `WasmEditor` per tab. Only the *active*
+      //   tab's text/cursor actually live in the WASM buffer at any
+      //   moment; switching tabs snapshots the outgoing tab's live
+      //   state into its own record, then loads the incoming tab's
+      //   record into the buffer via `set_text`/`set_cursor_position`.
+      // * Settings/theme are global (shared across tabs), matching most
+      //   tabbed editors - only document content, cursor, and dirty
+      //   state are per-tab.
+      // * Undo/redo history and find/replace state reset on every tab
+      //   switch, same as they already do today when opening a file
+      //   (`set_text` calls `discard_history()`/`find_replace.clear()`
+      //   in Rust) - an accepted trade-off, not an oversight, in
+      //   exchange for not needing per-tab `Editor`/`HistoryManager`
+      //   instances in Rust.
+      // * Every tab's content is continuously persisted to
+      //   localStorage (not just the active one), so a reload restores
+      //   the *whole* tab strip silently - no "restore this draft?"
+      //   banner needed any more.
+      // * A tab's `isDirty` flag means "differs from the last explicit
+      //   save/open for *this* tab" - localStorage persistence is a
+      //   safety net against losing work to a crash/closed tab, not a
+      //   substitute for actually saving a file.
+      class TabManager {
+        static STORAGE_KEY = "uns-editor-tabs-v1";
+        static POLL_MS = 2000;
+
+        constructor(editor) {
+          this.editor = editor;
+          this.tabs = [];
+          this.activeId = null;
+          this.timer = null;
+          this.strip = document.getElementById("tab-strip");
+        }
+
+        generateId() {
+          return `tab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        }
+
+        activeTab() {
+          return this.tabs.find((t) => t.id === this.activeId) || null;
+        }
+
+        nextUntitledName() {
+          let max = 0;
+          for (const t of this.tabs) {
+            const m = /^Untitled (\d+)$/.exec(t.name);
+            if (m) max = Math.max(max, parseInt(m[1], 10));
+          }
+          return `Untitled ${max + 1}`;
+        }
+
+        start() {
+          if (this.timer) return;
+          this.timer = setInterval(() => this.poll(), TabManager.POLL_MS);
+        }
+
+        // Pull the WASM buffer's live text/cursor into the active tab's
+        // own record and recompute its dirty flag. Call before reading
+        // or persisting a tab's state, and before switching away from
+        // it - the buffer is the only place the active tab's true
+        // current content lives.
+        snapshotActive() {
+          const tab = this.activeTab();
+          if (!tab || !this.editor) return;
+          try {
+            tab.text = this.editor.get_text();
+            const cursor = this.editor.get_cursor_position();
+            tab.cursorLine = cursor.line;
+            tab.cursorColumn = cursor.column;
+            tab.isDirty = tab.text !== tab.savedBaseline;
+          } catch (e) {
+            // Editor not ready yet; leave the tab's last known record.
+          }
+        }
+
+        loadActiveIntoEditor() {
+          const tab = this.activeTab();
+          if (!tab || !this.editor) return;
+          this.editor.set_text(tab.text || "");
+          this.editor.set_cursor_position(tab.cursorLine || 1, tab.cursorColumn || 1);
+        }
+
+        // Bootstrap the very first tab from whatever the WASM editor
+        // already has loaded (the random greeting) on a first-ever
+        // visit, without a redundant `set_text` round trip through
+        // Rust (which would also needlessly discard history that isn't
+        // there to discard yet).
+        seedFromCurrentEditorState(name) {
+          const text = this.editor.get_text();
+          let cursorLine = 1;
+          let cursorColumn = 1;
+          try {
+            const cursor = this.editor.get_cursor_position();
+            cursorLine = cursor.line;
+            cursorColumn = cursor.column;
+          } catch (e) {
+            // Fall through with defaults.
+          }
+          const tab = {
+            id: this.generateId(),
+            name: name || this.nextUntitledName(),
+            text,
+            cursorLine,
+            cursorColumn,
+            savedBaseline: text,
+            isDirty: false,
+          };
+          this.tabs.push(tab);
+          this.activeId = tab.id;
+          this.persist();
+          this.render();
+          return tab;
+        }
+
+        // Create a tab. Used for the "+" button (blank tab) and for
+        // opening a file (per the resolved P8-03 scope decision, Open
+        // always creates a new tab rather than replacing the active
+        // one). A freshly created/opened tab always starts clean - its
+        // `savedBaseline` is exactly its initial `text`.
+        createTab({ name, text = "" } = {}) {
+          this.snapshotActive();
+          const tab = {
+            id: this.generateId(),
+            name: name || this.nextUntitledName(),
+            text,
+            cursorLine: 1,
+            cursorColumn: 1,
+            savedBaseline: text,
+            isDirty: false,
+          };
+          this.tabs.push(tab);
+          this.activeId = tab.id;
+          this.loadActiveIntoEditor();
+          this.persist();
+          this.render();
+          return tab;
+        }
+
+        switchTo(id) {
+          if (id === this.activeId) return;
+          const target = this.tabs.find((t) => t.id === id);
+          if (!target) return;
+          this.snapshotActive();
+          this.activeId = id;
+          this.loadActiveIntoEditor();
+          this.persist();
+          this.render();
+        }
+
+        cycleTab(direction) {
+          if (this.tabs.length < 2) return;
+          const idx = this.tabs.findIndex((t) => t.id === this.activeId);
+          const next = (idx + direction + this.tabs.length) % this.tabs.length;
+          this.switchTo(this.tabs[next].id);
+        }
+
+        closeTab(id) {
+          const idx = this.tabs.findIndex((t) => t.id === id);
+          if (idx === -1) return;
+
+          if (id === this.activeId) this.snapshotActive();
+          const tab = this.tabs[idx];
+          if (tab.isDirty) {
+            if (!confirm(`"${tab.name}" has unsaved changes. Close it anyway?`)) {
+              return;
+            }
+          }
+
+          this.tabs.splice(idx, 1);
+
+          if (this.tabs.length === 0) {
+            // Always keep at least one tab open.
+            this.createTab({ text: "" });
+            return;
+          }
+
+          if (id === this.activeId) {
+            const nextIdx = Math.min(idx, this.tabs.length - 1);
+            this.activeId = this.tabs[nextIdx].id;
+            this.loadActiveIntoEditor();
+          }
+
+          this.persist();
+          this.render();
+        }
+
+        // Re-baseline the active tab to its current content (i.e. mark
+        // it saved) and optionally rename it to match a just-saved
+        // filename. Called by `FileManager` after a successful save.
+        markActiveClean(newName) {
+          const tab = this.activeTab();
+          if (!tab) return;
+          this.snapshotActive();
+          tab.savedBaseline = tab.text;
+          tab.isDirty = false;
+          if (newName) tab.name = newName;
+          this.persist();
+          this.render();
+        }
+
+        // Freshest possible read of "is the tab currently on screen
+        // dirty" - forces a snapshot first since the periodic poll may
+        // be up to `POLL_MS` stale.
+        isActiveDirty() {
+          this.snapshotActive();
+          const tab = this.activeTab();
+          return tab ? tab.isDirty : false;
+        }
+
+        // Same, but across every open tab - used for `beforeunload`.
+        anyDirty() {
+          this.snapshotActive();
+          return this.tabs.some((t) => t.isDirty);
+        }
+
+        poll() {
+          if (!this.editor) return;
+          const tab = this.activeTab();
+          if (!tab) return;
+          const wasDirty = tab.isDirty;
+          this.snapshotActive();
+          this.persist();
+          if (tab.isDirty !== wasDirty) {
+            this.render();
+          }
+        }
+
+        persist() {
+          try {
+            const payload = {
+              activeId: this.activeId,
+              tabs: this.tabs.map((t) => ({
+                id: t.id,
+                name: t.name,
+                text: t.text,
+                cursorLine: t.cursorLine,
+                cursorColumn: t.cursorColumn,
+                savedBaseline: t.savedBaseline,
+                isDirty: t.isDirty,
+              })),
+            };
+            localStorage.setItem(TabManager.STORAGE_KEY, JSON.stringify(payload));
+          } catch (e) {
+            // Quota exceeded or similar - persistence is a safety net,
+            // not a guarantee, so fail silently rather than
+            // interrupting editing.
+            console.error("Tab persistence failed:", e);
+          }
+        }
+
+        // Returns true if tabs were restored from a previous session,
+        // false if there was nothing to restore (first-ever visit, or
+        // storage was cleared) - the caller falls back to
+        // `seedFromCurrentEditorState` in that case.
+        restoreFromStorage() {
+          const raw = localStorage.getItem(TabManager.STORAGE_KEY);
+          if (!raw) return false;
+          try {
+            const payload = JSON.parse(raw);
+            if (!payload || !Array.isArray(payload.tabs) || payload.tabs.length === 0) {
+              return false;
+            }
+            this.tabs = payload.tabs.map((t) => ({
+              id: typeof t.id === "string" ? t.id : this.generateId(),
+              name: typeof t.name === "string" && t.name ? t.name : "Untitled",
+              text: typeof t.text === "string" ? t.text : "",
+              cursorLine: typeof t.cursorLine === "number" ? t.cursorLine : 1,
+              cursorColumn: typeof t.cursorColumn === "number" ? t.cursorColumn : 1,
+              savedBaseline: typeof t.savedBaseline === "string" ? t.savedBaseline : "",
+              isDirty: !!t.isDirty,
+            }));
+            const activeExists = this.tabs.some((t) => t.id === payload.activeId);
+            this.activeId = activeExists ? payload.activeId : this.tabs[0].id;
+            this.loadActiveIntoEditor();
+            this.render();
+            return true;
+          } catch (e) {
+            console.error("Failed to restore tabs:", e);
+            return false;
+          }
+        }
+
+        render() {
+          if (!this.strip) return;
+          this.strip.innerHTML = "";
+
+          for (const tab of this.tabs) {
+            const isActive = tab.id === this.activeId;
+            const el = document.createElement("div");
+            el.className =
+              "flex items-center gap-1.5 px-3 py-1.5 text-xs cursor-pointer border-r border-editor-border select-none max-w-[14rem] " +
+              (isActive
+                ? "bg-editor-bg text-editor-text"
+                : "bg-editor-header text-editor-text-dim hover:bg-editor-bg hover:text-editor-text");
+            el.title = tab.name;
+            el.dataset.tabId = tab.id; // stable selector for tests/e2e/tabs.spec.js
+            el.addEventListener("click", () => this.switchTo(tab.id));
+
+            const dot = document.createElement("span");
+            dot.className =
+              "w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" + (tab.isDirty ? "" : " invisible");
+            el.appendChild(dot);
+
+            const label = document.createElement("span");
+            label.className = "truncate";
+            label.textContent = tab.name;
+            el.appendChild(label);
+
+            const closeBtn = document.createElement("button");
+            closeBtn.className = "ml-1 opacity-60 hover:opacity-100 leading-none shrink-0";
+            closeBtn.textContent = "\u00d7";
+            closeBtn.title = "Close tab";
+            closeBtn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              this.closeTab(tab.id);
+            });
+            el.appendChild(closeBtn);
+
+            this.strip.appendChild(el);
+          }
+
+          const newTabBtn = document.createElement("button");
+          newTabBtn.id = "tab-strip-new-btn"; // stable selector for tests/e2e/tabs.spec.js
+          newTabBtn.className = "px-3 py-1.5 text-editor-text-dim hover:text-editor-text text-sm shrink-0";
+          newTabBtn.title = "New tab (Ctrl+N)";
+          newTabBtn.textContent = "+";
+          newTabBtn.addEventListener("click", () => this.createTab({ text: "" }));
+          this.strip.appendChild(newTabBtn);
+
+          // Aggregate dirty dot next to the logo (P5-02): any tab dirty,
+          // not just the active one.
+          const headerDot = document.getElementById("dirty-indicator");
+          if (headerDot) {
+            headerDot.classList.toggle("hidden", !this.tabs.some((t) => t.isDirty));
+          }
+        }
+      }
+
       class FileManager {
         constructor(editor) {
           this.editor = editor;
@@ -1621,6 +2518,10 @@
         }
 
         async handleDroppedFile(file) {
+          // P8-03: dropping a file creates a new tab (like Open File),
+          // so there's nothing to discard any more - the P5-02
+          // confirm-before-discard guard that used to live here was
+          // removed along with that assumption.
           try {
             // Enforce file size limit (10MB)
             if (file.size > 10 * 1024 * 1024) {
@@ -1699,6 +2600,7 @@
             const filename = this.generateFilename("txt");
             this.downloadBlob(blob, filename);
             this.closeSaveModal();
+            if (tabManager) tabManager.markActiveClean(filename);
             updateStatus(`Saved as ${filename}`);
           } catch (e) {
             console.error("Save TXT error:", e);
@@ -1739,6 +2641,7 @@
             const filename = this.generateFilename("uns");
             this.downloadBlob(blob, filename);
             this.closeSaveModal();
+            if (tabManager) tabManager.markActiveClean(filename);
             updateStatus(`Saved as ${filename}`);
           } catch (e) {
             console.error("Save UNS error:", e);
@@ -1788,7 +2691,10 @@
         }
 
         openFile() {
-          // Trigger file input click (opens native file picker)
+          // P8-03: opening a file creates a new tab, so there's nothing
+          // to discard any more - see `handleDroppedFile` for the same
+          // reasoning (the P5-02 confirm-before-discard guard that used
+          // to live here was removed along with that assumption).
           this.fileInput.click();
         }
 
@@ -1836,8 +2742,14 @@
         }
 
         loadTxtFile(text, filename) {
-          // Simple: just set the text, keep current settings
-          this.editor.set_text(text);
+          // P8-03: opens into a new tab (keeping current settings,
+          // which are global) rather than replacing the active tab's
+          // content. `createTab` already starts the new tab clean.
+          if (tabManager) {
+            tabManager.createTab({ name: filename, text });
+          } else {
+            this.editor.set_text(text);
+          }
           updateStatus(`Opened ${filename} (plain text)`);
         }
 
@@ -1864,10 +2776,23 @@
               throw new Error("Invalid UNS file: missing content.text");
             }
 
-            // Load text content
-            this.editor.set_text(unsDocument.content.text);
+            // Load text content into a new tab (P8-03) rather than
+            // replacing the active tab's content.
+            let tab = null;
+            if (tabManager) {
+              tab = tabManager.createTab({ name: filename, text: unsDocument.content.text });
+            } else {
+              this.editor.set_text(unsDocument.content.text);
+            }
 
-            // Load settings if present
+            // Restore the saved cursor position within the new tab.
+            if (tab && unsDocument.content.cursor) {
+              tab.cursorLine = unsDocument.content.cursor.line || 1;
+              tab.cursorColumn = unsDocument.content.cursor.column || 1;
+              this.editor.set_cursor_position(tab.cursorLine, tab.cursorColumn);
+            }
+
+            // Load settings if present (global - shared across tabs).
             if (unsDocument.settings) {
               try {
                 const settingsJson = JSON.stringify(unsDocument.settings);
@@ -2196,6 +3121,374 @@
         }
       }
 
+      // ============================================================
+      // Command palette (Phase P1-03).
+      // Loads the command list from the Rust plugin registry the first
+      // time it is opened, then filters that list by fuzzy subsequence
+      // match on `title + " " + id`. Selecting a command calls
+      // `editor.run_command(id, "")`.
+      // ============================================================
+      class CommandPalette {
+        constructor(editor) {
+          this.editor = editor;
+          this.modal = document.getElementById("palette-modal");
+          this.input = document.getElementById("palette-input");
+          this.list = document.getElementById("palette-list");
+          this.commands = null; // Loaded on first open, kept for later.
+          this.filtered = [];
+          this.selectedIndex = 0;
+
+          this.input.addEventListener("input", () => this.refresh());
+          this.input.addEventListener("keydown", (e) => this.onKeyDown(e));
+          // Click outside the inner panel closes the palette.
+          this.modal.addEventListener("click", (e) => {
+            if (e.target === this.modal) this.close();
+          });
+        }
+
+        loadCommands() {
+          if (this.commands !== null) return;
+          try {
+            const raw = this.editor.list_commands();
+            // wasm-bindgen may hand us an Array-like; normalize.
+            this.commands = Array.from(raw || []);
+          } catch (e) {
+            console.error("list_commands failed:", e);
+            this.commands = [];
+          }
+        }
+
+        open() {
+          this.loadCommands();
+          this.modal.classList.remove("hidden");
+          this.modal.classList.add("flex");
+          this.input.value = "";
+          this.selectedIndex = 0;
+          this.refresh();
+          // Focus the input on the next tick so the initial focus ring
+          // shows after the flex layout has settled.
+          setTimeout(() => this.input.focus(), 0);
+        }
+
+        close() {
+          this.modal.classList.add("hidden");
+          this.modal.classList.remove("flex");
+          // Return focus to the canvas so the editor stays keyboard-driven.
+          const canvas = document.getElementById("editor-canvas");
+          if (canvas) canvas.focus();
+        }
+
+        isOpen() {
+          return !this.modal.classList.contains("hidden");
+        }
+
+        // Fuzzy subsequence match: every character of `query` must
+        // appear in `haystack` in order (case-insensitive). Score is
+        // the number of consecutive matches, so tightly-clustered hits
+        // rank first. Returns -1 for no match.
+        fuzzyScore(query, haystack) {
+          if (!query) return 0;
+          const q = query.toLowerCase();
+          const h = haystack.toLowerCase();
+          let qi = 0;
+          let score = 0;
+          let streak = 0;
+          for (let hi = 0; hi < h.length && qi < q.length; hi++) {
+            if (h[hi] === q[qi]) {
+              qi++;
+              streak++;
+              score += streak; // Consecutive hits weigh quadratically.
+            } else {
+              streak = 0;
+            }
+          }
+          if (qi < q.length) return -1;
+          return score;
+        }
+
+        refresh() {
+          const q = this.input.value.trim();
+          const scored = [];
+          for (const cmd of this.commands) {
+            const haystack = `${cmd.title} ${cmd.id}`;
+            const s = this.fuzzyScore(q, haystack);
+            if (s >= 0) scored.push({ cmd, score: s });
+          }
+          // Sort by score desc; stable insertion preserves registration
+          // order for ties.
+          scored.sort((a, b) => b.score - a.score);
+          this.filtered = scored.map((s) => s.cmd);
+          this.selectedIndex = 0;
+          this.render();
+        }
+
+        render() {
+          this.list.innerHTML = "";
+          if (this.filtered.length === 0) {
+            const empty = document.createElement("li");
+            empty.className = "px-4 py-3 text-editor-text text-sm opacity-70";
+            empty.textContent = "No matching commands";
+            this.list.appendChild(empty);
+            return;
+          }
+          this.filtered.forEach((cmd, idx) => {
+            const li = document.createElement("li");
+            li.className =
+              "px-4 py-2 cursor-pointer flex justify-between items-center gap-3 " +
+              (idx === this.selectedIndex
+                ? "bg-editor-accent text-white"
+                : "text-editor-text hover:bg-editor-border");
+            const left = document.createElement("div");
+            left.className = "flex flex-col min-w-0";
+            const title = document.createElement("span");
+            title.className = "text-sm truncate";
+            title.textContent = cmd.title;
+            const id = document.createElement("span");
+            id.className = "text-xs opacity-70 truncate";
+            id.textContent = cmd.id;
+            left.appendChild(title);
+            left.appendChild(id);
+            li.appendChild(left);
+            if (cmd.keybinding) {
+              const kb = document.createElement("span");
+              kb.className =
+                "text-xs px-2 py-0.5 rounded border border-editor-border opacity-80 shrink-0";
+              kb.textContent = cmd.keybinding;
+              li.appendChild(kb);
+            }
+            li.addEventListener("mouseenter", () => {
+              this.selectedIndex = idx;
+              this.render();
+            });
+            li.addEventListener("click", () => {
+              this.selectedIndex = idx;
+              this.run();
+            });
+            this.list.appendChild(li);
+          });
+        }
+
+        onKeyDown(e) {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            this.close();
+            return;
+          }
+          if (e.key === "Enter") {
+            e.preventDefault();
+            this.run();
+            return;
+          }
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            if (this.filtered.length === 0) return;
+            this.selectedIndex =
+              (this.selectedIndex + 1) % this.filtered.length;
+            this.render();
+            return;
+          }
+          if (e.key === "ArrowUp") {
+            e.preventDefault();
+            if (this.filtered.length === 0) return;
+            this.selectedIndex =
+              (this.selectedIndex - 1 + this.filtered.length) %
+              this.filtered.length;
+            this.render();
+            return;
+          }
+        }
+
+        run() {
+          const cmd = this.filtered[this.selectedIndex];
+          if (!cmd) return;
+          try {
+            this.editor.run_command(cmd.id, "");
+            updateStatus(`Ran: ${cmd.title}`);
+          } catch (e) {
+            console.error("run_command failed:", e);
+            updateStatus(`Command failed: ${e.message || e}`);
+          }
+          this.close();
+        }
+      }
+
+      // Find & Replace panel (Phase P2-03). Talks to the Rust
+      // `FindReplacePlugin` (`src/plugins/find_replace.rs`) exclusively
+      // through `editor.run_command(id, args_json)` - no dedicated WASM
+      // methods were needed since the plugin command surface already
+      // covers everything the panel does.
+      class FindReplacePanel {
+        constructor(editor) {
+          this.editor = editor;
+          this.panel = document.getElementById("find-panel");
+          this.replaceRow = document.getElementById("find-replace-row");
+          this.findInput = document.getElementById("find-input");
+          this.replaceInput = document.getElementById("replace-input");
+          this.countEl = document.getElementById("find-count");
+          this.caseSensitive = document.getElementById("find-case-sensitive");
+          this.wholeWord = document.getElementById("find-whole-word");
+          this.useRegex = document.getElementById("find-use-regex");
+
+          const setup = (id, handler) => {
+            const button = document.getElementById(id);
+            button.addEventListener("click", handler);
+          };
+          setup("find-prev-btn", () => this.prev());
+          setup("find-next-btn", () => this.next());
+          setup("find-close-btn", () => this.close());
+          setup("replace-one-btn", () => this.replaceOne());
+          setup("replace-all-btn", () => this.replaceAll());
+
+          this.findInput.addEventListener("input", () => this.onQueryChanged());
+          this.caseSensitive.addEventListener("change", () => this.onQueryChanged());
+          this.wholeWord.addEventListener("change", () => this.onQueryChanged());
+          this.useRegex.addEventListener("change", () => this.onQueryChanged());
+          this.replaceInput.addEventListener("input", () => this.onQueryChanged());
+
+          this.findInput.addEventListener("keydown", (e) => this.onKeyDown(e));
+          this.replaceInput.addEventListener("keydown", (e) => this.onKeyDown(e));
+        }
+
+        isOpen() {
+          return !this.panel.classList.contains("hidden");
+        }
+
+        open(withReplace) {
+          this.panel.classList.remove("hidden");
+          if (withReplace) {
+            this.replaceRow.classList.remove("hidden");
+          }
+          const focusTarget = withReplace && this.findInput.value ? this.replaceInput : this.findInput;
+          setTimeout(() => {
+            focusTarget.focus();
+            focusTarget.select();
+          }, 0);
+          if (this.findInput.value) {
+            this.onQueryChanged();
+          }
+        }
+
+        showReplace() {
+          this.replaceRow.classList.remove("hidden");
+          setTimeout(() => this.replaceInput.focus(), 0);
+        }
+
+        close() {
+          this.panel.classList.add("hidden");
+          this.replaceRow.classList.add("hidden");
+          try {
+            this.editor.run_command("editor.find.clear", "");
+          } catch (e) {
+            console.error("find.clear failed:", e);
+          }
+          this.countEl.textContent = "0/0";
+          const canvas = document.getElementById("editor-canvas");
+          if (canvas) canvas.focus();
+        }
+
+        args() {
+          return JSON.stringify({
+            query: this.findInput.value,
+            replacement: this.replaceInput.value,
+            case_sensitive: this.caseSensitive.checked,
+            whole_word: this.wholeWord.checked,
+            use_regex: this.useRegex.checked,
+          });
+        }
+
+        onQueryChanged() {
+          try {
+            const raw = this.editor.run_command("editor.find.setQuery", this.args());
+            this.updateCount(raw);
+          } catch (e) {
+            console.error("find.setQuery failed:", e);
+          }
+        }
+
+        updateCount(raw) {
+          let summary;
+          try {
+            summary = JSON.parse(raw);
+          } catch (e) {
+            summary = { count: 0, current: null, error: null };
+          }
+          if (summary.error) {
+            this.countEl.textContent = "Invalid regex";
+          } else if (summary.count === 0) {
+            this.countEl.textContent = "0/0";
+          } else {
+            this.countEl.textContent = `${summary.current + 1}/${summary.count}`;
+          }
+        }
+
+        next() {
+          try {
+            this.updateCount(this.editor.run_command("editor.find.next", ""));
+          } catch (e) {
+            console.error("find.next failed:", e);
+          }
+        }
+
+        prev() {
+          try {
+            this.updateCount(this.editor.run_command("editor.find.prev", ""));
+          } catch (e) {
+            console.error("find.prev failed:", e);
+          }
+        }
+
+        replaceOne() {
+          try {
+            const raw = this.editor.run_command("editor.find.replaceCurrent", this.args());
+            this.updateCount(raw);
+            updateStatus("Replaced 1 occurrence");
+          } catch (e) {
+            console.error("find.replaceCurrent failed:", e);
+          }
+        }
+
+        replaceAll() {
+          try {
+            const raw = this.editor.run_command("editor.find.replaceAll", this.args());
+            const summary = JSON.parse(raw);
+            this.updateCount(raw);
+            updateStatus(`Replaced ${summary.replaced} occurrence(s)`);
+          } catch (e) {
+            console.error("find.replaceAll failed:", e);
+          }
+        }
+
+        onKeyDown(e) {
+          // Fully handled here; stop the document-level shortcut handler
+          // (Escape / F3) from acting on the same keystroke a second time.
+          if (e.key === "Escape") {
+            e.preventDefault();
+            e.stopPropagation();
+            this.close();
+            return;
+          }
+          if (e.key === "Enter") {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.shiftKey) {
+              this.prev();
+            } else {
+              this.next();
+            }
+            return;
+          }
+          if (e.key === "F3") {
+            e.preventDefault();
+            e.stopPropagation();
+            if (e.shiftKey) {
+              this.prev();
+            } else {
+              this.next();
+            }
+          }
+        }
+      }
+
       async function main() {
         try {
           // Detect mobile device first (needed throughout initialization)
@@ -2209,7 +3502,7 @@
           let bufferedFormatControl = null; // Buffer for U+202F or U+180E
 
           // Initialize WASM with cache-busting parameter
-          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=5" });
+          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=7" });
 
           // Setup canvas
           const { width, height } = resizeCanvas();
@@ -2234,6 +3527,34 @@
             } catch (e) {
               console.error("Failed to load saved settings:", e);
             }
+          } else if (
+            window.matchMedia &&
+            window.matchMedia("(prefers-color-scheme: dark)").matches
+          ) {
+            // P4-03: first-ever visit (nothing saved yet) - honor the
+            // OS/browser dark-mode preference by applying the
+            // "Default Dark" built-in theme instead of the paper-like
+            // light default. Persisted immediately so this is a
+            // one-time decision, not re-evaluated on every load (a user
+            // who explicitly picks a different theme afterwards should
+            // stick with it even if their OS preference changes later).
+            try {
+              const themes = JSON.parse(editor.list_themes());
+              const dark = themes.find((t) => t.id === "default-dark");
+              if (dark) {
+                const current = JSON.parse(editor.get_settings_json());
+                const next = {
+                  ...current,
+                  appearance: dark.appearance,
+                  editor: { ...current.editor, theme_id: "default-dark" },
+                };
+                editor.set_settings_json(JSON.stringify(next));
+                localStorage.setItem("uns-editor-settings", JSON.stringify(next));
+                updateStatus("Applied dark theme (system preference)");
+              }
+            } catch (e) {
+              console.error("Failed to apply system dark theme:", e);
+            }
           }
 
           // Initialize settings modal
@@ -2245,8 +3566,116 @@
           // Initialize transliteration modal
           const translitModal = new TranslitModal(editor);
 
+          // Initialize command palette (Phase P1-03)
+          const commandPalette = new CommandPalette(editor);
+
+          // Initialize find & replace panel (Phase P2-03)
+          const findReplacePanel = new FindReplacePanel(editor);
+
+          // Initialize tabs (Phase P8-03). Restore a previous session's
+          // tabs if one exists in localStorage; otherwise seed a single
+          // tab from whatever the WASM editor already has loaded (the
+          // random greeting) so the very first document a user ever
+          // sees is itself already a normal, closeable/renameable tab.
+          tabManager = new TabManager(editor);
+          const restoredTabs = tabManager.restoreFromStorage();
+          if (!restoredTabs) {
+            tabManager.seedFromCurrentEditorState("Untitled 1");
+          } else {
+            updateStatus(`Restored ${tabManager.tabs.length} tab(s) from your last session`);
+          }
+          tabManager.start();
+
+          window.addEventListener("beforeunload", (e) => {
+            if (tabManager && tabManager.anyDirty()) {
+              e.preventDefault();
+              e.returnValue = "";
+            }
+          });
+
           // Keyboard shortcuts for save/open
           document.addEventListener("keydown", (e) => {
+            // Ctrl+Shift+P - Open command palette (Phase P1-03)
+            if (
+              (e.ctrlKey || e.metaKey) &&
+              e.shiftKey &&
+              (e.key === "p" || e.key === "P")
+            ) {
+              e.preventDefault();
+              commandPalette.open();
+              return;
+            }
+
+            // Ctrl+F / Cmd+F - Open find panel (Phase P2-03)
+            if ((e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F")) {
+              e.preventDefault();
+              findReplacePanel.open(false);
+              return;
+            }
+
+            // Ctrl+H / Cmd+H (or Cmd+Option+F on macOS convention) - Open
+            // find panel with replace row visible.
+            if ((e.ctrlKey || e.metaKey) && (e.key === "h" || e.key === "H")) {
+              e.preventDefault();
+              findReplacePanel.open(true);
+              return;
+            }
+
+            // F3 / Shift+F3 - Next / previous match, even when focus is
+            // on the canvas rather than the find input.
+            if (e.key === "F3" && findReplacePanel.isOpen()) {
+              e.preventDefault();
+              if (e.shiftKey) {
+                findReplacePanel.prev();
+              } else {
+                findReplacePanel.next();
+              }
+              return;
+            }
+
+            // Ctrl+= / Ctrl+- (Cmd+= / Cmd+- on macOS) - Zoom font size
+            // in/out (Phase P8-04). `=` rather than `+` because that's
+            // the un-shifted key browsers themselves use for zoom.
+            if ((e.ctrlKey || e.metaKey) && (e.key === "=" || e.key === "+")) {
+              e.preventDefault();
+              adjustFontSize(2);
+              return;
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === "-") {
+              e.preventDefault();
+              adjustFontSize(-2);
+              return;
+            }
+
+            // Ctrl+N / Cmd+N - New tab (Phase P8-03). This one is
+            // reliable - unlike Ctrl+W/Ctrl+Tab below, browsers don't
+            // reserve Ctrl+N as aggressively (Chrome does use it for a
+            // new *window*, but still lets pages override it).
+            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "n" || e.key === "N")) {
+              e.preventDefault();
+              tabManager.createTab({ text: "" });
+              return;
+            }
+
+            // Ctrl+W / Cmd+W - Close active tab. Best-effort only: Chrome
+            // specifically refuses to let pages override closing the
+            // browser tab itself, so this will do nothing in Chrome. The
+            // × button on each tab is the reliable way to close one.
+            if ((e.ctrlKey || e.metaKey) && (e.key === "w" || e.key === "W")) {
+              e.preventDefault();
+              tabManager.closeTab(tabManager.activeId);
+              return;
+            }
+
+            // Ctrl+Tab / Ctrl+Shift+Tab - Cycle tabs. Also best-effort:
+            // browsers may intercept this for switching *browser* tabs
+            // instead of handing it to the page.
+            if (e.ctrlKey && e.key === "Tab") {
+              e.preventDefault();
+              tabManager.cycleTab(e.shiftKey ? -1 : 1);
+              return;
+            }
+
             // Ctrl+S or Cmd+S - Open save modal
             if ((e.ctrlKey || e.metaKey) && e.key === "s") {
               e.preventDefault();
@@ -2296,7 +3725,33 @@
             ) {
               fileManager.closeSaveModal();
             }
+
+            // Escape - Close find & replace panel (only when focus isn't
+            // already inside it - its own keydown handler covers that
+            // case and calls close() directly).
+            if (e.key === "Escape" && findReplacePanel.isOpen()) {
+              findReplacePanel.close();
+            }
           });
+
+          // Test seam (Phase P7-04). Read-only accessors for the
+          // Playwright smoke test (`tests/e2e/smoke.spec.js`) - the
+          // editor renders to a `<canvas>`, so there is no DOM text to
+          // assert against otherwise. Exposes nothing not already
+          // reachable via the same public WASM methods the app itself
+          // calls (`get_text`, `get_settings_json`,
+          // `get_cursor_position`); this is not a new capability, just a
+          // shortcut around scraping canvas pixels. Always present
+          // (not gated behind a query param) since there is no
+          // authentication or server-side state in this app for it to
+          // put at risk.
+          window.__unsTestHooks = {
+            getText: () => editor?.get_text() ?? null,
+            getSettings: () =>
+              editor ? JSON.parse(editor.get_settings_json()) : null,
+            getCursor: () => editor?.get_cursor_position() ?? null,
+            isReady: () => !!editor,
+          };
 
           // Hide loading
           document.getElementById("loading").classList.add("hidden");
@@ -2729,7 +4184,8 @@
                 const isModal =
                   activeEl &&
                   (activeEl.closest("#settings-modal") ||
-                    activeEl.closest("#save-modal"));
+                    activeEl.closest("#save-modal") ||
+                    activeEl.closest("#palette-modal"));
 
                 // Don't steal focus from color picker or modals
                 if (!isColorPicker && !isModal) {
@@ -2809,7 +4265,16 @@
 
           setupButton("clear-btn", () => {
             if (editor) {
+              // Unsaved-changes guard (P5-02): Clear still discards the
+              // active tab's content in place (unlike Open, it doesn't
+              // create a new tab), so it keeps this confirm.
+              if (tabManager && tabManager.isActiveDirty()) {
+                if (!confirm("You have unsaved changes. Clear the document anyway?")) {
+                  return;
+                }
+              }
               editor.set_text("");
+              if (tabManager) tabManager.markActiveClean();
               updateStatus("Text cleared");
               // Focus canvas after action
               if (isMobileDevice) {
