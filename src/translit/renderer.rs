@@ -99,9 +99,7 @@ impl TranslitRenderer {
 
         // Clear via fillRect first (cheap, also paints any area we don't
         // touch with ImageData below).
-        context.set_fill_style(
-            &format!("rgb({}, {}, {})", bg.r(), bg.g(), bg.b()).into(),
-        );
+        context.set_fill_style_str(&format!("rgb({}, {}, {})", bg.r(), bg.g(), bg.b()));
         context.fill_rect(0.0, 0.0, self.width as f64, self.height as f64);
 
         // Build a pixel buffer pre-filled with the background colour.

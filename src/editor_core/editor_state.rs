@@ -3,6 +3,7 @@ use crate::config::settings::EditorSettings;
 use crate::editor_core::events::EventBus;
 use crate::editor_core::history::{EditKind, HistoryManager};
 use crate::editor_core::plugin::{CoreCommandsPlugin, PluginRegistry};
+use crate::editor_core::suggestions::SuggestionState;
 use crate::plugins::find_replace::FindReplaceState;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::JsFuture;
@@ -29,6 +30,10 @@ pub struct EditorState {
     /// pointers with no access to plugin instance state - see the note
     /// on "plugin data slots" in `prompt/PLUGIN_API.md`.
     pub find_replace: FindReplaceState,
+    /// Word suggestion popup state (Phase P9). See
+    /// `crate::editor_core::suggestions` for why this is a plain field
+    /// rather than a `Plugin`, unlike `find_replace` above.
+    pub suggestions: SuggestionState,
 }
 
 impl EditorState {
@@ -110,6 +115,7 @@ impl EditorState {
             plugins,
             history: HistoryManager::new(),
             find_replace: FindReplaceState::new(),
+            suggestions: SuggestionState::new(),
         })
     }
 

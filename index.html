@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>unesun sambarA - Mongolian Text Editor</title>
-    <link rel="stylesheet" href="dist/output.css?v=12" />
+    <link rel="stylesheet" href="dist/output.css?v=14" />
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0"
@@ -170,6 +170,29 @@
 
       .toolbar-btn.active {
         background-color: #3b82f6;
+      }
+
+      /*
+        Focus-visible audit (Phase P6-03). A single global rule rather
+        than editing every button's class list individually - this app
+        has dozens of buttons across the toolbar and four modals, all
+        previously relying on `:hover` alone with no visible keyboard-
+        focus indicator. `:focus-visible` (not `:focus`) so the ring
+        only appears for keyboard/programmatic focus, not every mouse
+        click - consistent with how `.toolbar-btn:active` already gives
+        pointer interactions their own (different) feedback.
+        White-on-dark 2px outline with a 2px offset comfortably clears
+        WCAG 2.1 SC 1.4.11's 3:1 non-text contrast minimum against both
+        `editor-header` (#252526) and `editor-bg` (#1e1e1e) - the two
+        backgrounds every button in this app sits on.
+      */
+      button:focus-visible,
+      a:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      [tabindex]:focus-visible {
+        outline: 2px solid #ffffff;
+        outline-offset: 2px;
       }
 
       /* Responsive toolbar on mobile */
@@ -368,6 +391,40 @@
         </div>
 
         <!--
+          Word suggestion popup (Phase P9). Anchored next to the text
+          cursor (position set dynamically in JS from
+          `get_word_suggestions_json()`'s pixel coordinates - see
+          `WordSuggestionsPopup.position()`), unlike the fixed-position
+          `#find-panel` below. Backed by `WasmEditor::get_word_suggestions_json`
+          / `accept_word_suggestion` / `dismiss_word_suggestions`
+          (`src/lib.rs`), which share the Cyrillic<->Mongolian
+          dictionary the Transliteration modal already uses.
+
+          WS-09: the suggestions themselves are drawn into
+          `#word-suggestions-canvas` by `WasmEditor::render_suggestions_popup`
+          using the same `cosmic-text`+`harfrust`+`swash` pipeline the
+          main document canvas uses - not ordinary DOM text - so
+          Mongolian glyph shaping is guaranteed identical to the
+          document regardless of the browser's own (inconsistent)
+          support for shaping Mongolian under CSS `writing-mode`. See
+          `DOC/IMPL/WORD_SUGGESTIONS_IMPL.md`'s WS-09 section.
+        -->
+        <div
+          id="word-suggestions-popup"
+          class="hidden absolute z-40 bg-editor-header border border-editor-border rounded shadow-2xl overflow-auto"
+        >
+          <canvas id="word-suggestions-canvas"></canvas>
+        </div>
+        <!--
+          Screen-reader mirror for the canvas-rendered popup above -
+          same pattern as the `#sr-status`/`#sr-cursor` live regions
+          (P6-02): a canvas has no semantic text content of its own, so
+          without this, canvas-based suggestions would be invisible to
+          assistive tech even though sighted users can see them.
+        -->
+        <div id="sr-suggestions" class="sr-only" aria-live="polite"></div>
+
+        <!--
           Find & Replace panel (Phase P2-03). Slides down from the top of
           the canvas area. Backed by the `editor.find.*` commands
           contributed by `FindReplacePlugin` (`src/plugins/find_replace.rs`),
@@ -475,6 +532,22 @@
           <span id="cursor-position" class="hidden">Line 1, Col 1</span>
         </div>
       </div>
+
+      <!--
+        Screen-reader announcements (Phase P6-02). Visually hidden
+        (`sr-only`); mirrors `#status-message` and `#cursor-position`
+        respectively so a screen reader user gets the same feedback a
+        sighted user reads off the status bar. Two separate regions
+        (status text vs. cursor position) rather than one shared region,
+        so the two kinds of update don't get concatenated into a
+        confusing single announcement. `aria-live="polite"` naturally
+        avoids spamming - browsers only fire an accessibility update
+        when a live region's content actually changes, and
+        `updateCursorPosition()` runs every animation frame but only
+        writes a new value when the cursor actually moved.
+      -->
+      <div id="sr-status" aria-live="polite" class="sr-only"></div>
+      <div id="sr-cursor" aria-live="polite" class="sr-only"></div>
     </div>
 
     <!-- Settings Modal -->
@@ -516,6 +589,18 @@
             class="settings-tab flex-1 px-6 py-3 text-sm font-medium text-editor-text hover:text-white hover:bg-editor-bg transition-colors border-b-2 border-transparent"
           >
             Editor
+          </button>
+          <button
+            id="input-tab-btn"
+            class="settings-tab flex-1 px-6 py-3 text-sm font-medium text-editor-text hover:text-white hover:bg-editor-bg transition-colors border-b-2 border-transparent"
+          >
+            Input
+          </button>
+          <button
+            id="keybindings-tab-btn"
+            class="settings-tab flex-1 px-6 py-3 text-sm font-medium text-editor-text hover:text-white hover:bg-editor-bg transition-colors border-b-2 border-transparent"
+          >
+            Keys
           </button>
         </div>
 
@@ -827,6 +912,97 @@
                   class="w-5 h-5 accent-editor-accent"
                 />
               </label>
+
+              <label
+                class="flex items-center justify-between gap-3 bg-editor-bg border border-editor-border rounded px-4 py-3 cursor-pointer"
+              >
+                <span>
+                  <span class="block text-sm text-editor-text">Word suggestions</span>
+                  <span class="block text-xs text-editor-text opacity-70"
+                    >Show a completion popup next to the cursor while typing (Phase P9)</span
+                  >
+                </span>
+                <input
+                  type="checkbox"
+                  id="word-suggestions-enabled"
+                  class="w-5 h-5 accent-editor-accent"
+                />
+              </label>
+            </div>
+          </div>
+
+          <!-- Input Tab (P3-03): editable Latin -> Mongolian key mapping. -->
+          <div id="input-tab" class="settings-tab-content p-6 hidden">
+            <div class="space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <label class="block text-xs font-medium text-editor-text-dim">
+                  Latin &rarr; Mongolian key mapping
+                </label>
+                <button
+                  id="latin-mapping-reset-all-btn"
+                  class="text-xs text-editor-text-dim hover:text-editor-text underline"
+                >
+                  Reset all to defaults
+                </button>
+              </div>
+              <p class="text-editor-text-dim text-xs">
+                Type a replacement in the "Mongolian" column to override a key. Overrides are saved in
+                this browser and take precedence over the built-in mapping; the &#8634; button resets a
+                single row. Some values are invisible format-control characters - hover a field for its
+                Unicode code point.
+              </p>
+              <div class="border border-editor-border rounded overflow-y-auto" style="max-height: 320px;">
+                <table class="w-full text-sm">
+                  <thead class="sticky top-0 bg-editor-header">
+                    <tr>
+                      <th class="text-left px-3 py-2 text-editor-text-dim font-medium">Key</th>
+                      <th class="text-left px-3 py-2 text-editor-text-dim font-medium">Mongolian</th>
+                      <th class="px-3 py-2 w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="latin-mapping-table-body">
+                    <!-- Rendered by SettingsModal.renderLatinMappingTable() -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Keybindings Tab (P6-01): app-level shortcuts only - see
+               src/config/keybindings.rs for why undo/redo, copy/paste,
+               and typing aren't included. -->
+          <div id="keybindings-tab" class="settings-tab-content p-6 hidden">
+            <div class="space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <label class="block text-xs font-medium text-editor-text-dim">
+                  Keyboard shortcuts
+                </label>
+                <button
+                  id="keybindings-reset-all-btn"
+                  class="text-xs text-editor-text-dim hover:text-editor-text underline"
+                >
+                  Reset all to defaults
+                </button>
+              </div>
+              <p class="text-editor-text-dim text-xs">
+                Click a shortcut, then press a new key combination. Undo/redo, copy/cut/paste, and
+                typing are not reconfigurable here. Some combinations (closing/cycling browser tabs)
+                may be reserved by your browser regardless of what's set here.
+              </p>
+              <div class="border border-editor-border rounded overflow-y-auto" style="max-height: 320px;">
+                <table class="w-full text-sm">
+                  <thead class="sticky top-0 bg-editor-header">
+                    <tr>
+                      <th class="text-left px-3 py-2 text-editor-text-dim font-medium">Action</th>
+                      <th class="text-left px-3 py-2 text-editor-text-dim font-medium">Shortcut</th>
+                      <th class="px-3 py-2 w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="keybindings-table-body">
+                    <!-- Rendered by SettingsModal.renderKeybindingsTable() -->
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </div>
@@ -1072,7 +1248,7 @@
     </div>
 
     <script type="module">
-      import init, { WasmEditor } from "./pkg/uns_editor.js?v=7";
+      import init, { WasmEditor } from "./pkg/uns_editor.js?v=12";
 
       let editor = null;
       let animationId = null;
@@ -1334,6 +1510,10 @@
 
       function updateStatus(message) {
         document.getElementById("status-message").textContent = message;
+        // P6-02: mirror into the visually-hidden live region so screen
+        // reader users get the same feedback.
+        const srStatus = document.getElementById("sr-status");
+        if (srStatus) srStatus.textContent = message;
       }
 
       // P8-04: bump font size (and proportionally, line height, so the
@@ -1403,6 +1583,14 @@
               `Line ${cursor.line}, Col ${cursor.column}`;
           }
           document.getElementById("cursor-position").classList.remove("hidden");
+          // P6-02: mirror into the visually-hidden live region. Runs
+          // every animation frame (like the rest of this function), but
+          // only actually announces when the text differs from last
+          // time - see the live regions' doc comment in the HTML above.
+          const srCursor = document.getElementById("sr-cursor");
+          if (srCursor) {
+            srCursor.textContent = document.getElementById("cursor-position").textContent;
+          }
 
           // Update Unicode info for character before cursor
           const unicodeInfoEl = document.getElementById("unicode-info");
@@ -1467,7 +1655,15 @@
       }
 
       function animate(timestamp) {
-        if (editor && !renderPaused) {
+        // P7-01: skip both the canvas redraw and the status-bar/word-
+        // count refresh unless something actually changed (or the
+        // cursor's blink interval is due) - `needs_render()` is a cheap
+        // flag check, unlike `render()` (rebuilds a full pixel buffer +
+        // `putImageData`) or `updateCursorPosition()` (calls
+        // `get_text()`, which is O(document length), on every call).
+        // Both used to run unconditionally on every RAF tick, ~60
+        // times/second, even while completely idle.
+        if (editor && !renderPaused && editor.needs_render(timestamp)) {
           try {
             editor.render(timestamp);
             updateCursorPosition();
@@ -1532,6 +1728,7 @@
             backgroundColorHex: document.getElementById("background-color-hex"),
             showLineNumbers: document.getElementById("show-line-numbers"),
             wordWrap: document.getElementById("word-wrap"),
+            wordSuggestionsEnabled: document.getElementById("word-suggestions-enabled"),
             themeSelect: document.getElementById("theme-select"),
             cursorColor: document.getElementById("cursor-color"),
             cursorColorHex: document.getElementById("cursor-color-hex"),
@@ -1574,10 +1771,20 @@
             fontBtn: document.getElementById("font-tab-btn"),
             colorBtn: document.getElementById("color-tab-btn"),
             editorBtn: document.getElementById("editor-tab-btn"),
+            inputBtn: document.getElementById("input-tab-btn"),
+            keybindingsBtn: document.getElementById("keybindings-tab-btn"),
             fontPanel: document.getElementById("font-tab"),
             colorPanel: document.getElementById("color-tab"),
             editorPanel: document.getElementById("editor-tab"),
+            inputPanel: document.getElementById("input-tab"),
+            keybindingsPanel: document.getElementById("keybindings-tab"),
           };
+
+          this.keybindingsTableBody = document.getElementById("keybindings-table-body");
+          this.keybindingsResetAllBtn = document.getElementById("keybindings-reset-all-btn");
+
+          this.latinMappingTableBody = document.getElementById("latin-mapping-table-body");
+          this.latinMappingResetAllBtn = document.getElementById("latin-mapping-reset-all-btn");
         }
 
         attachEventListeners() {
@@ -1600,6 +1807,58 @@
           addHandler(this.tabs.fontBtn, () => this.switchTab("font"));
           addHandler(this.tabs.colorBtn, () => this.switchTab("color"));
           addHandler(this.tabs.editorBtn, () => this.switchTab("editor"));
+          addHandler(this.tabs.inputBtn, () => this.switchTab("input"));
+
+          // Latin mapping table (P3-03): event delegation on the table
+          // body rather than one listener per row, since rows are
+          // re-rendered wholesale on every change anyway.
+          this.latinMappingTableBody.addEventListener("input", (e) => {
+            const input = e.target.closest("input[data-latin-key]");
+            if (!input) return;
+            const key = input.dataset.latinKey;
+            latinMapping.setOverride(key, input.value);
+            // Update just this row's border/reset-button/tooltip rather
+            // than re-rendering the whole table, which would steal
+            // focus from the input the user is actively typing in.
+            this.refreshLatinMappingRow(input, key);
+          });
+          this.latinMappingTableBody.addEventListener("click", (e) => {
+            const button = e.target.closest("button[data-latin-reset-key]");
+            if (!button) return;
+            latinMapping.resetKey(button.dataset.latinResetKey);
+            this.renderLatinMappingTable();
+          });
+          addHandler(this.latinMappingResetAllBtn, () => {
+            if (confirm("Reset all Latin-to-Mongolian key overrides to defaults?")) {
+              latinMapping.resetAll();
+              this.renderLatinMappingTable();
+              updateStatus("Latin key mapping reset to defaults");
+            }
+          });
+
+          addHandler(this.tabs.keybindingsBtn, () => this.switchTab("keybindings"));
+
+          // Keybindings table (P6-01): event delegation, same pattern as
+          // the Latin mapping table above.
+          this.keybindingsTableBody.addEventListener("click", (e) => {
+            const recordBtn = e.target.closest("button[data-keybinding-record]");
+            if (recordBtn) {
+              this.startRecordingKeybinding(recordBtn, recordBtn.dataset.keybindingRecord);
+              return;
+            }
+            const resetBtn = e.target.closest("button[data-keybinding-reset]");
+            if (resetBtn) {
+              keybindings.resetKey(resetBtn.dataset.keybindingReset);
+              this.renderKeybindingsTable();
+            }
+          });
+          addHandler(this.keybindingsResetAllBtn, () => {
+            if (confirm("Reset all keyboard shortcuts to defaults?")) {
+              keybindings.resetAll();
+              this.renderKeybindingsTable();
+              updateStatus("Keyboard shortcuts reset to defaults");
+            }
+          });
 
           // Helper function to update font size from any control
           const updateFontSize = (size) => {
@@ -1891,6 +2150,172 @@
           };
         }
 
+        // Full (re)render of the Latin mapping table (P3-03) - used on
+        // first visiting the Input tab, after "Reset all", and after
+        // resetting a single row (where rebuilding the whole table is
+        // fine since focus wasn't in that row's input to begin with).
+        renderLatinMappingTable() {
+          if (!latinMapping) return;
+          this.latinMappingTableBody.innerHTML = "";
+          for (const key of latinMapping.orderedKeys()) {
+            const row = document.createElement("tr");
+            row.className = "border-t border-editor-border";
+
+            const keyCell = document.createElement("td");
+            keyCell.className = "px-3 py-1.5 font-mono text-editor-text";
+            keyCell.textContent = key;
+            row.appendChild(keyCell);
+
+            const valueCell = document.createElement("td");
+            valueCell.className = "px-3 py-1.5";
+            const input = document.createElement("input");
+            input.type = "text";
+            input.value = latinMapping.effective[key] ?? "";
+            input.dataset.latinKey = key;
+            input.className =
+              "w-full bg-editor-bg text-editor-text border rounded px-2 py-1 text-sm font-mono";
+            valueCell.appendChild(input);
+            row.appendChild(valueCell);
+
+            const resetCell = document.createElement("td");
+            resetCell.className = "px-3 py-1.5 text-center";
+            row.appendChild(resetCell);
+
+            this.latinMappingTableBody.appendChild(row);
+            // Reuses the same per-row update logic the live "input"
+            // listener uses, so the initial render and every
+            // subsequent edit stay visually consistent.
+            this.refreshLatinMappingRow(input, key);
+          }
+        }
+
+        // Updates one row's input border, reset button, and tooltip to
+        // match whether `key` currently has an override - shared by the
+        // initial render and the live "input" listener (which calls
+        // this instead of a full re-render so the input the user is
+        // typing in never loses focus).
+        refreshLatinMappingRow(input, key) {
+          const overridden = latinMapping.isOverridden(key);
+          input.classList.toggle("border-editor-accent", overridden);
+          input.classList.toggle("border-editor-border", !overridden);
+          input.title = Array.from(input.value)
+            .map((c) => "U+" + c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0"))
+            .join(" ");
+
+          const resetCell = input.closest("tr").lastElementChild;
+          resetCell.innerHTML = "";
+          if (overridden) {
+            const resetBtn = document.createElement("button");
+            resetBtn.textContent = "\u21ba";
+            resetBtn.title = "Reset to default";
+            resetBtn.dataset.latinResetKey = key;
+            resetBtn.className = "text-editor-text-dim hover:text-editor-text";
+            resetCell.appendChild(resetBtn);
+          }
+        }
+
+        // Full (re)render of the Keybindings table (P6-01) - mirrors
+        // `renderLatinMappingTable()`'s structure. Cheap to always
+        // fully rebuild (~16 rows, versus ~130 for the Latin table)
+        // so there's no per-row "refresh" variant here.
+        renderKeybindingsTable() {
+          if (!keybindings) return;
+          this.keybindingsTableBody.innerHTML = "";
+          for (const binding of keybindings.defaults) {
+            const row = document.createElement("tr");
+            row.className = "border-t border-editor-border";
+
+            const labelCell = document.createElement("td");
+            labelCell.className = "px-3 py-1.5 text-editor-text";
+            labelCell.textContent = binding.label;
+            row.appendChild(labelCell);
+
+            const comboCell = document.createElement("td");
+            comboCell.className = "px-3 py-1.5";
+            const recordBtn = document.createElement("button");
+            recordBtn.textContent = keybindings.comboFor(binding.id);
+            recordBtn.dataset.keybindingRecord = binding.id;
+            recordBtn.className =
+              "font-mono text-xs bg-editor-bg border rounded px-2 py-1 hover:border-editor-accent " +
+              (keybindings.isOverridden(binding.id)
+                ? "border-editor-accent text-editor-text"
+                : "border-editor-border text-editor-text");
+            comboCell.appendChild(recordBtn);
+            row.appendChild(comboCell);
+
+            const resetCell = document.createElement("td");
+            resetCell.className = "px-3 py-1.5 text-center";
+            if (keybindings.isOverridden(binding.id)) {
+              const resetBtn = document.createElement("button");
+              resetBtn.textContent = "\u21ba";
+              resetBtn.title = "Reset to default";
+              resetBtn.dataset.keybindingReset = binding.id;
+              resetBtn.className = "text-editor-text-dim hover:text-editor-text";
+              resetCell.appendChild(resetBtn);
+            }
+            row.appendChild(resetCell);
+
+            this.keybindingsTableBody.appendChild(row);
+          }
+        }
+
+        // Puts `button` into "recording" mode: the next keydown *on
+        // this button* (not the document - see the listener's own
+        // `stopPropagation` below) becomes the new combo for `id`,
+        // unless it's Escape (cancel) or a bare modifier key (ignored,
+        // recording continues - a combo needs a non-modifier key).
+        startRecordingKeybinding(button, id) {
+          const original = button.textContent;
+          button.textContent = "Press keys... (Esc to cancel)";
+          button.classList.add("border-editor-accent");
+          button.focus();
+
+          const onKeyDown = (e) => {
+            // Never let this reach the document-level shortcut
+            // dispatcher or trigger a browser default (e.g. Ctrl+S's
+            // save-page-as) while recording.
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (e.key === "Escape") {
+              cleanup();
+              this.renderKeybindingsTable();
+              return;
+            }
+
+            // A bare modifier key press (before the "real" key)
+            // reaches here too; ignore it and keep listening rather
+            // than recording "Ctrl" alone as a combo.
+            if (["Control", "Meta", "Alt", "Shift"].includes(e.key)) {
+              return;
+            }
+
+            const combo = KeybindingManager.formatEventCombo(e);
+            const conflict = keybindings.actionBoundTo(combo, id);
+            if (
+              conflict &&
+              !confirm(
+                `"${combo}" is already used by "${conflict.label}". Reassign it to this action anyway?`,
+              )
+            ) {
+              cleanup();
+              button.textContent = original;
+              button.classList.remove("border-editor-accent");
+              return;
+            }
+
+            keybindings.setOverride(id, combo);
+            cleanup();
+            this.renderKeybindingsTable();
+          };
+
+          const cleanup = () => {
+            button.removeEventListener("keydown", onKeyDown);
+          };
+
+          button.addEventListener("keydown", onKeyDown);
+        }
+
         open() {
           this.loadSettings();
           this.switchTab("font"); // Default to font tab
@@ -1903,9 +2328,13 @@
           this.tabs.fontBtn.classList.remove("active");
           this.tabs.colorBtn.classList.remove("active");
           this.tabs.editorBtn.classList.remove("active");
+          this.tabs.inputBtn.classList.remove("active");
+          this.tabs.keybindingsBtn.classList.remove("active");
           this.tabs.fontPanel.classList.remove("active");
           this.tabs.colorPanel.classList.remove("active");
           this.tabs.editorPanel.classList.remove("active");
+          this.tabs.inputPanel.classList.remove("active");
+          this.tabs.keybindingsPanel.classList.remove("active");
 
           // Add active class to selected tab and panel
           if (tabName === "font") {
@@ -1917,6 +2346,16 @@
           } else if (tabName === "editor") {
             this.tabs.editorBtn.classList.add("active");
             this.tabs.editorPanel.classList.add("active");
+          } else if (tabName === "input") {
+            this.tabs.inputBtn.classList.add("active");
+            this.tabs.inputPanel.classList.add("active");
+            // Rendered lazily - no point building ~130 table rows on
+            // every modal open if the user never visits this tab.
+            this.renderLatinMappingTable();
+          } else if (tabName === "keybindings") {
+            this.tabs.keybindingsBtn.classList.add("active");
+            this.tabs.keybindingsPanel.classList.add("active");
+            this.renderKeybindingsTable();
           }
         }
 
@@ -1981,6 +2420,8 @@
 
             this.elements.showLineNumbers.checked = !!settings.editor.show_line_numbers;
             this.elements.wordWrap.checked = settings.editor.word_wrap !== false;
+            this.elements.wordSuggestionsEnabled.checked =
+              settings.editor.word_suggestions_enabled !== false;
 
             // Restore the theme dropdown's selection (purely cosmetic -
             // `appearance` above is already the real state regardless of
@@ -2021,6 +2462,7 @@
                 ...current.editor,
                 show_line_numbers: this.elements.showLineNumbers.checked,
                 word_wrap: this.elements.wordWrap.checked,
+                word_suggestions_enabled: this.elements.wordSuggestionsEnabled.checked,
                 theme_id: this.activeThemeId,
               },
             };
@@ -2140,6 +2582,11 @@
           if (!tab || !this.editor) return;
           this.editor.set_text(tab.text || "");
           this.editor.set_cursor_position(tab.cursorLine || 1, tab.cursorColumn || 1);
+          // Every path that calls this (switchTo, closeTab's neighbor
+          // switch, createTab) replaces the whole document - any
+          // suggestions computed for the previous tab's word are
+          // meaningless now (Phase P9).
+          if (wordSuggestions) wordSuggestions.dismiss();
         }
 
         // Bootstrap the very first tab from whatever the WASM editor
@@ -3489,6 +3936,645 @@
         }
       }
 
+      // Latin-to-Mongolian key mapping, with user overrides (Phase
+      // P3-03).
+      //
+      // `base` is parsed once from `config/latin.csv` and never
+      // mutated afterwards - it's the "factory default" a row's reset
+      // button reverts to. `overrides` is the subset of keys the user
+      // has changed via the settings modal's "Input" tab, persisted to
+      // localStorage. `effective` is `{ ...base, ...overrides }` -
+      // literally what the canvas keydown handler and the iOS
+      // mobile-input handler look characters up in; recomputed
+      // whenever `overrides` changes so callers never have to think
+      // about the merge themselves.
+      class LatinMappingManager {
+        static OVERRIDES_KEY = "uns-editor-latin-overrides";
+
+        constructor() {
+          this.base = {};
+          this.overrides = this.loadOverrides();
+          this.effective = {};
+        }
+
+        async loadBase() {
+          try {
+            // Cache-busting timestamp, matching the original
+            // `loadLatinMapping()` this class replaces.
+            const response = await fetch("config/latin.csv?v=" + Date.now());
+            const csvText = await response.text();
+            const lines = csvText.trim().split("\n");
+            const base = {};
+
+            // Skip header line.
+            for (let i = 1; i < lines.length; i++) {
+              const line = lines[i];
+              if (!line) continue;
+              const parts = line.split(",");
+              const key = parts[0]?.trim(); // Only trim the key.
+              const char = parts[1]; // Don't trim the character - it might be a format control.
+
+              // Comma mapping: an empty key with a third column means
+              // the key itself is a literal comma (which would
+              // otherwise be ambiguous with the CSV's own delimiter).
+              if (key === "" && parts.length >= 3 && parts[2]) {
+                base[","] = parts[2];
+              } else if (key && char !== undefined && char !== "") {
+                // Keep the exact case from CSV (a->A, A->A, n->N, N->N-with-dot, etc.)
+                base[key] = char;
+              }
+            }
+            this.base = base;
+          } catch (err) {
+            console.error("Failed to load latin.csv:", err);
+          }
+          this.recompute();
+        }
+
+        loadOverrides() {
+          try {
+            const raw = localStorage.getItem(LatinMappingManager.OVERRIDES_KEY);
+            const parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === "object" ? parsed : {};
+          } catch (e) {
+            return {};
+          }
+        }
+
+        saveOverrides() {
+          try {
+            localStorage.setItem(
+              LatinMappingManager.OVERRIDES_KEY,
+              JSON.stringify(this.overrides),
+            );
+          } catch (e) {
+            console.error("Failed to save Latin mapping overrides:", e);
+          }
+        }
+
+        recompute() {
+          this.effective = { ...this.base, ...this.overrides };
+        }
+
+        // Keys in CSV order, plus any override-only keys (shouldn't
+        // normally happen through the UI, but keeps this robust
+        // against stale/hand-edited localStorage rather than silently
+        // dropping such a row).
+        orderedKeys() {
+          const keys = Object.keys(this.base);
+          for (const k of Object.keys(this.overrides)) {
+            if (!keys.includes(k)) keys.push(k);
+          }
+          return keys;
+        }
+
+        isOverridden(key) {
+          return Object.prototype.hasOwnProperty.call(this.overrides, key);
+        }
+
+        // Setting a key back to its base value is treated the same as
+        // resetting it - no point persisting an "override" that's
+        // identical to the default.
+        setOverride(key, value) {
+          if (value === this.base[key]) {
+            delete this.overrides[key];
+          } else {
+            this.overrides[key] = value;
+          }
+          this.recompute();
+          this.saveOverrides();
+        }
+
+        resetKey(key) {
+          delete this.overrides[key];
+          this.recompute();
+          this.saveOverrides();
+        }
+
+        resetAll() {
+          this.overrides = {};
+          this.recompute();
+          this.saveOverrides();
+        }
+      }
+
+      // Module-scope instance (like `editor`/`tabManager`), created in
+      // main() once fetch()/localStorage are available.
+      let latinMapping = null;
+
+      // Configurable app-level keybindings (Phase P6-01).
+      //
+      // Only the app-level actions Rust's `list_keybindings()` enumerates
+      // are covered here - undo/redo, copy/cut/paste, typing, and arrow-
+      // key motion stay hardcoded inside `WasmEditor::handle_key_down`
+      // (see the scope note in `src/config/keybindings.rs`). `defaults`
+      // comes from Rust; `overrides` from localStorage; `effective` is
+      // the merge actually consulted by `matches()`.
+      //
+      // Combo grammar: modifier names joined by "+", final token is the
+      // key, e.g. `"Ctrl+Shift+P"` or `"F3"`. `"Ctrl"` matches
+      // `ctrlKey || metaKey` (same macOS-Cmd-as-Ctrl convention every
+      // other shortcut in this app already uses). Single-character keys
+      // compare case-insensitively (shift state is its own explicit
+      // modifier in the combo, so `"Ctrl+="` and `"Ctrl+Shift+="` are
+      // distinguishable without relying on `e.key`'s casing).
+      class KeybindingManager {
+        static OVERRIDES_KEY = "uns-editor-keybindings";
+
+        constructor() {
+          this.defaults = []; // [{ id, label, default }], in display order
+          this.overrides = this.loadOverrides(); // { id: combo }
+        }
+
+        async loadDefaults(editor) {
+          try {
+            this.defaults = JSON.parse(editor.list_keybindings());
+          } catch (e) {
+            console.error("Failed to load keybindings:", e);
+            this.defaults = [];
+          }
+        }
+
+        loadOverrides() {
+          try {
+            const raw = localStorage.getItem(KeybindingManager.OVERRIDES_KEY);
+            const parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === "object" ? parsed : {};
+          } catch (e) {
+            return {};
+          }
+        }
+
+        saveOverrides() {
+          try {
+            localStorage.setItem(
+              KeybindingManager.OVERRIDES_KEY,
+              JSON.stringify(this.overrides),
+            );
+          } catch (e) {
+            console.error("Failed to save keybinding overrides:", e);
+          }
+        }
+
+        defaultCombo(id) {
+          return this.defaults.find((b) => b.id === id)?.default ?? "";
+        }
+
+        comboFor(id) {
+          return this.overrides[id] ?? this.defaultCombo(id);
+        }
+
+        isOverridden(id) {
+          return Object.prototype.hasOwnProperty.call(this.overrides, id);
+        }
+
+        setOverride(id, combo) {
+          if (combo === this.defaultCombo(id)) {
+            delete this.overrides[id];
+          } else {
+            this.overrides[id] = combo;
+          }
+          this.saveOverrides();
+        }
+
+        resetKey(id) {
+          delete this.overrides[id];
+          this.saveOverrides();
+        }
+
+        resetAll() {
+          this.overrides = {};
+          this.saveOverrides();
+        }
+
+        // The other action id (if any) currently bound to `combo` -
+        // used to warn about conflicts when recording a new binding.
+        // Ties resolve by registration order in the dispatch loop
+        // (first match wins), so a conflict isn't a hard error, just
+        // something worth flagging.
+        actionBoundTo(combo, excludingId) {
+          for (const b of this.defaults) {
+            if (b.id !== excludingId && this.comboFor(b.id) === combo) {
+              return b;
+            }
+          }
+          return null;
+        }
+
+        static parseCombo(combo) {
+          const parts = combo.split("+").map((p) => p.trim());
+          const key = parts[parts.length - 1];
+          const mods = parts.slice(0, -1).map((p) => p.toLowerCase());
+          return {
+            ctrl: mods.includes("ctrl"),
+            alt: mods.includes("alt"),
+            shift: mods.includes("shift"),
+            key,
+          };
+        }
+
+        // Build the canonical combo string for a live KeyboardEvent -
+        // used by the "record a shortcut" UI in the settings modal.
+        static formatEventCombo(e) {
+          const parts = [];
+          if (e.ctrlKey || e.metaKey) parts.push("Ctrl");
+          if (e.altKey) parts.push("Alt");
+          if (e.shiftKey) parts.push("Shift");
+          let key = e.key;
+          if (key === " ") key = "Space";
+          else if (key.length === 1) key = key.toUpperCase();
+          parts.push(key);
+          return parts.join("+");
+        }
+
+        matches(e, id) {
+          const parsed = KeybindingManager.parseCombo(this.comboFor(id));
+          const ctrlOk = parsed.ctrl ? e.ctrlKey || e.metaKey : !e.ctrlKey && !e.metaKey;
+          const altOk = parsed.alt ? e.altKey : !e.altKey;
+          const shiftOk = parsed.shift ? e.shiftKey : !e.shiftKey;
+          if (!ctrlOk || !altOk || !shiftOk) return false;
+          return parsed.key.length === 1
+            ? e.key.toLowerCase() === parsed.key.toLowerCase()
+            : e.key === parsed.key;
+        }
+      }
+
+      let keybindings = null;
+
+      // Word suggestion popup (Phase P9, `prompt/WORD_SUGGESTIONS_PLAN.md`).
+      //
+      // Lazily loads the same Cyrillic<->Mongolian dictionary the
+      // Transliteration modal (`TranslitModal`) uses, the first time a
+      // suggestion is actually needed - same lazy-load convention every
+      // other feature in this app follows (auto-save, tabs, Latin
+      // mapping, and the modal's own dictionary load all defer their
+      // expensive first-use work). `refresh()` is the single entry
+      // point every trigger site in `main()` calls; it's `async` only
+      // because of that first-load path - once the dictionary is
+      // loaded, `refresh()` still returns quickly (a single synchronous
+      // WASM call).
+      class WordSuggestionsPopup {
+        static DICTIONARY_URL = "dist/dictionary/01_kv.tsv";
+
+        constructor(editor) {
+          this.editor = editor;
+          this.popup = document.getElementById("word-suggestions-popup");
+          this.canvas = document.getElementById("word-suggestions-canvas");
+          this.srMirror = document.getElementById("sr-suggestions");
+          this.dictionaryLoaded = false;
+          this.loadPromise = null;
+          this.visible = false;
+          this.suggestions = [];
+          this.selected = 0;
+          // WS-09: item hit-boxes from the last `measure_suggestions_popup()`
+          // call, in the same device-pixel space as `anchorX`/`anchorY`
+          // - used by the canvas's own mousedown/mousemove listeners
+          // below to figure out which suggestion a pointer event landed
+          // on, since the canvas has no per-item DOM nodes to attach
+          // listeners to individually any more.
+          this.itemBounds = [];
+          this.hoverIndex = -1;
+          this.setupCanvasPointerEvents();
+        }
+
+        // WS-09: converts a mouse event's page-relative position into
+        // the same device-pixel canvas-local space `itemBounds` is in
+        // (mirroring the inverse of `position()`'s own CSS-pixel
+        // conversion), then finds which suggestion (if any) contains
+        // that point. Returns `-1` for "none".
+        hitTest(event) {
+          const rect = this.canvas.getBoundingClientRect();
+          const dpr = window.devicePixelRatio || 1;
+          const x = (event.clientX - rect.left) * dpr;
+          const y = (event.clientY - rect.top) * dpr;
+          for (let i = 0; i < this.itemBounds.length; i++) {
+            const b = this.itemBounds[i];
+            if (x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h) {
+              return i;
+            }
+          }
+          return -1;
+        }
+
+        setupCanvasPointerEvents() {
+          // `mousedown` (not `click`) so accepting fires before the
+          // canvas's own blur handling would otherwise dismiss the
+          // popup first - same reasoning the old per-`<li>` listeners
+          // used.
+          this.canvas.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            const index = this.hitTest(e);
+            if (index !== -1) {
+              this.acceptIndex(index);
+            }
+          });
+          this.canvas.addEventListener("mousemove", (e) => {
+            const index = this.hitTest(e);
+            if (index !== this.hoverIndex) {
+              this.hoverIndex = index;
+              // Only the highlight changed, not the suggestion list
+              // itself - redraw without re-measuring (see
+              // `render_suggestions_popup`'s doc comment on why this
+              // is safe/cheap).
+              this.redraw();
+            }
+          });
+          this.canvas.addEventListener("mouseleave", () => {
+            if (this.hoverIndex !== -1) {
+              this.hoverIndex = -1;
+              this.redraw();
+            }
+          });
+        }
+
+        isOpen() {
+          return this.visible;
+        }
+
+        // Fetched fresh each time (not cached) rather than kept in sync
+        // with every settings-changing action - this is only ever read
+        // right before a render/position update, so staleness isn't a
+        // real risk, and it matches how the rest of the app (e.g.
+        // `updateCursorPosition()`) reads settings.
+        getSettings() {
+          try {
+            return JSON.parse(this.editor.get_settings_json());
+          } catch (e) {
+            return null;
+          }
+        }
+
+        // Whether the editor is currently in Mongolian vertical-script
+        // mode (`#vertical-btn` / `settings.editor.orientation`).
+        // `render()` and `position()` both need this.
+        isVerticalMode() {
+          return this.getSettings()?.editor?.orientation === "vertical";
+        }
+
+        async ensureDictionaryLoaded() {
+          if (this.dictionaryLoaded) return;
+          // Multiple keystrokes can each call `refresh()` -> this method
+          // while the fetch below is still in flight (typing doesn't wait
+          // for the dictionary). Rather than have every call after the
+          // first just no-op, they all await the *same* in-flight promise
+          // so each of their `refresh()` callers naturally continues (with
+          // whatever is the current cursor/buffer state at that later
+          // point - see `refresh()`) once the real load finishes, instead
+          // of silently doing nothing for the keystroke that happened to
+          // land during the load window.
+          if (!this.loadPromise) {
+            this.loadPromise = (async () => {
+              try {
+                // Deliberately *not* `editor.translit_load_dictionary()`
+                // (async, holds a mutable WASM borrow across its `await`)
+                // - this load is triggered by canvas typing, so a `keyup`
+                // for the very keystroke that triggered it can fire while
+                // that borrow is still held, tripping wasm-bindgen's
+                // "recursive use of an object" panic (confirmed during
+                // manual testing, not just theoretical). Fetching the text
+                // in plain JS - no WASM object involved - and handing the
+                // already-resolved string to the synchronous
+                // `load_dictionary_text` avoids the hazard entirely. See
+                // that method's doc comment in `src/lib.rs` for the full
+                // explanation.
+                const response = await fetch(
+                  WordSuggestionsPopup.DICTIONARY_URL,
+                );
+                if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}`);
+                }
+                const text = await response.text();
+                this.editor.load_dictionary_text(text);
+                this.dictionaryLoaded = true;
+              } catch (e) {
+                console.error("Word suggestions: dictionary load failed:", e);
+              }
+            })();
+          }
+          await this.loadPromise;
+        }
+
+        // Called after every keystroke that could change the word at
+        // the cursor (see the trigger table in
+        // WORD_SUGGESTIONS_PLAN.md §7). Safe to call liberally - it's a
+        // no-op past the first call once the dictionary is loaded, and
+        // hides the popup itself when there's nothing to show.
+        async refresh() {
+          if (!this.dictionaryLoaded) {
+            await this.ensureDictionaryLoaded();
+            if (!this.dictionaryLoaded) {
+              // Load failed (e.g. network error) - nothing to show.
+              return;
+            }
+            // No "stale keystroke" concern here: `handle_key_down`
+            // already applied every keystroke to the Rust buffer
+            // synchronously *before* its `refresh()` call ran, so the
+            // WASM editor's cursor/buffer state is always current at
+            // the point `get_word_suggestions_json()` below is called,
+            // regardless of how long the dictionary fetch took or how
+            // many more keystrokes landed while it was in flight.
+          }
+
+          let result;
+          try {
+            result = this.editor.get_word_suggestions_json();
+          } catch (e) {
+            console.error("get_word_suggestions_json failed:", e);
+            this.hide();
+            return;
+          }
+
+          if (!result || !result.hasSuggestions) {
+            this.hide();
+            return;
+          }
+
+          this.suggestions = Array.from(result.suggestions || []);
+          this.selected = 0;
+          this.render();
+          this.position(result.anchorX, result.anchorY, result.lineAdvance);
+          this.show();
+        }
+
+        // WS-09: measures the current suggestion list via real
+        // `cosmic-text` shaping (`measure_suggestions_popup`), resizes
+        // `#word-suggestions-canvas` to fit, then draws
+        // (`render_suggestions_popup`). Call this whenever the
+        // suggestion *list itself* changes (new word, new dictionary
+        // results) - for a highlight-only change (arrow/number
+        // navigation, mouse hover), call `redraw()` instead, which
+        // reuses the already-measured layout.
+        render() {
+          const dpr = window.devicePixelRatio || 1;
+          let measured;
+          try {
+            measured = this.editor.measure_suggestions_popup();
+          } catch (e) {
+            console.error("measure_suggestions_popup failed:", e);
+            this.hide();
+            return;
+          }
+
+          this.itemBounds = Array.from(measured.itemBounds || []);
+          this.hoverIndex = -1;
+
+          const cssWidth = measured.width / dpr;
+          const cssHeight = measured.height / dpr;
+          this.canvas.width = Math.max(1, Math.round(measured.width));
+          this.canvas.height = Math.max(1, Math.round(measured.height));
+          this.canvas.style.width = `${cssWidth}px`;
+          this.canvas.style.height = `${cssHeight}px`;
+
+          this.redraw();
+          this.updateAccessibilityMirror();
+        }
+
+        // Repaints the popup using whatever layout the last `render()`
+        // call measured, without re-measuring - correct and cheap for
+        // anything that only changes *which* item is highlighted
+        // (keyboard navigation, mouse hover), since none of those
+        // change the suggestion list's actual content/size.
+        redraw() {
+          try {
+            this.editor.render_suggestions_popup(
+              "word-suggestions-canvas",
+              this.selected,
+              this.hoverIndex,
+            );
+          } catch (e) {
+            console.error("render_suggestions_popup failed:", e);
+          }
+        }
+
+        // Canvas content has no semantic text of its own - mirror the
+        // current suggestion list into the visually-hidden
+        // `#sr-suggestions` live region (same pattern as
+        // `#sr-status`/`#sr-cursor`, P6-02) so screen reader users
+        // aren't left with nothing when this feature is active.
+        updateAccessibilityMirror() {
+          if (!this.srMirror) return;
+          if (this.suggestions.length === 0) {
+            this.srMirror.textContent = "";
+            return;
+          }
+          const current = this.suggestions[this.selected] ?? "";
+          this.srMirror.textContent =
+            `Suggestion ${this.selected + 1} of ${this.suggestions.length} selected: ${current}. ` +
+            "Press a number key, arrow keys, or Enter to choose; Escape to dismiss.";
+        }
+
+        position(anchorX, anchorY, lineAdvance) {
+          const canvas = document.getElementById("editor-canvas");
+          const container = document.getElementById("canvas-container");
+          const canvasRect = canvas.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
+          const dpr = window.devicePixelRatio || 1;
+
+          // anchorX/anchorY/lineAdvance are all in canvas-pixel (device
+          // pixel) space; convert to CSS pixels, then to a position
+          // relative to #canvas-container (this popup's positioning
+          // parent) rather than the viewport.
+          const left = canvasRect.left - containerRect.left + anchorX / dpr;
+          const top = canvasRect.top - containerRect.top + anchorY / dpr;
+          // `lineAdvance` is the actual line/column spacing at the
+          // cursor (see `get_word_suggestions_json`'s doc comment in
+          // `src/lib.rs`) - a fixed guess here previously landed the
+          // popup inside the *next* column's territory in vertical
+          // mode rather than a clean gap beside the current one, since
+          // column width isn't a fixed constant (depends on font size
+          // and the current per-line metrics).
+          const advance = (lineAdvance || 24) / dpr;
+
+          if (this.isVerticalMode()) {
+            // Deliberately *not* a full `advance` (column width) here
+            // - columns sit edge-to-edge with no gap between them, so
+            // offsetting a whole column over always lands exactly at
+            // the start of the *next* column, unavoidably overlaying
+            // whatever's already there rather than reading as "beside
+            // the cursor." A small fixed gap keeps the popup hugging
+            // the cursor's own glyph instead.
+            const verticalGap = 6;
+            this.popup.style.left = `${Math.max(0, left + verticalGap)}px`;
+            this.popup.style.top = `${Math.max(0, top)}px`;
+          } else {
+            this.popup.style.left = `${Math.max(0, left)}px`;
+            this.popup.style.top = `${top + advance}px`;
+          }
+        }
+
+        show() {
+          this.visible = true;
+          this.popup.classList.remove("hidden");
+        }
+
+        hide() {
+          this.visible = false;
+          this.suggestions = [];
+          this.itemBounds = [];
+          this.hoverIndex = -1;
+          this.popup.classList.add("hidden");
+          if (this.srMirror) this.srMirror.textContent = "";
+        }
+
+        next() {
+          if (this.suggestions.length === 0) return;
+          this.selected = (this.selected + 1) % this.suggestions.length;
+          this.redraw();
+          this.updateAccessibilityMirror();
+        }
+
+        prev() {
+          if (this.suggestions.length === 0) return;
+          this.selected =
+            (this.selected - 1 + this.suggestions.length) % this.suggestions.length;
+          this.redraw();
+          this.updateAccessibilityMirror();
+        }
+
+        acceptIndex(index) {
+          const text = this.suggestions[index];
+          if (text === undefined) return;
+          try {
+            this.editor.accept_word_suggestion(text);
+          } catch (e) {
+            console.error("accept_word_suggestion failed:", e);
+          }
+          this.hide();
+        }
+
+        accept() {
+          this.acceptIndex(this.selected);
+        }
+
+        // `oneBasedNumber` is what the user actually typed (the "1" in
+        // "press 1 to accept the first suggestion", matching the number
+        // badge drawn above each column in vertical mode - see
+        // `render()`). Returns whether it was a valid selection, so the
+        // caller (canvas `keydown`) can fall through to ordinary typing
+        // for out-of-range digits (e.g. pressing "9" when there are
+        // only 3 suggestions should just insert "9", not silently do
+        // nothing).
+        acceptByNumber(oneBasedNumber) {
+          const index = oneBasedNumber - 1;
+          if (index < 0 || index >= this.suggestions.length) {
+            return false;
+          }
+          this.acceptIndex(index);
+          return true;
+        }
+
+        dismiss() {
+          try {
+            this.editor.dismiss_word_suggestions();
+          } catch (e) {
+            // Ignore - editor may not be ready yet.
+          }
+          this.hide();
+        }
+      }
+
+      let wordSuggestions = null;
+
       async function main() {
         try {
           // Detect mobile device first (needed throughout initialization)
@@ -3498,11 +4584,10 @@
 
           // Input mode state - starts active (true = convert Latin to Mongolian)
           let isInputModeActive = true;
-          let latinToMongolianMap = {};
           let bufferedFormatControl = null; // Buffer for U+202F or U+180E
 
           // Initialize WASM with cache-busting parameter
-          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=7" });
+          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=12" });
 
           // Setup canvas
           const { width, height } = resizeCanvas();
@@ -3593,132 +4678,70 @@
             }
           });
 
-          // Keyboard shortcuts for save/open
+          // Load configurable keybindings (Phase P6-01) - must happen
+          // before the dispatch loop below, which consults
+          // `keybindings.matches()` for every action.
+          keybindings = new KeybindingManager();
+          await keybindings.loadDefaults(editor);
+
+          // Word suggestion popup (Phase P9). No async setup needed
+          // here - the dictionary loads lazily on first real trigger
+          // (see `WordSuggestionsPopup.ensureDictionaryLoaded`).
+          wordSuggestions = new WordSuggestionsPopup(editor);
+
+          // Keyboard shortcuts for save/open (Phase P6-01: data-driven
+          // dispatch over `keybindings.matches()` instead of one
+          // hardcoded `if` per shortcut, so every entry here is
+          // reconfigurable from the settings modal's Keybindings tab).
+          // `guard`, when present, must also pass - used for the two
+          // find-navigation actions, which (matching the pre-P6-01
+          // behavior) only fire while the find panel is actually open.
+          const keyActions = [
+            { id: "editor.commandPalette", run: () => commandPalette.open() },
+            { id: "editor.find", run: () => findReplacePanel.open(false) },
+            { id: "editor.findReplace", run: () => findReplacePanel.open(true) },
+            {
+              id: "editor.findNext",
+              guard: () => findReplacePanel.isOpen(),
+              run: () => findReplacePanel.next(),
+            },
+            {
+              id: "editor.findPrev",
+              guard: () => findReplacePanel.isOpen(),
+              run: () => findReplacePanel.prev(),
+            },
+            { id: "editor.zoomIn", run: () => adjustFontSize(2) },
+            { id: "editor.zoomOut", run: () => adjustFontSize(-2) },
+            { id: "editor.newTab", run: () => tabManager.createTab({ text: "" }) },
+            { id: "editor.closeTab", run: () => tabManager.closeTab(tabManager.activeId) },
+            { id: "editor.cycleTabNext", run: () => tabManager.cycleTab(1) },
+            { id: "editor.cycleTabPrev", run: () => tabManager.cycleTab(-1) },
+            { id: "editor.save", run: () => fileManager.openSaveModal() },
+            { id: "editor.open", run: () => fileManager.openFile() },
+            {
+              id: "editor.export",
+              run: () => document.getElementById("export-btn").click(),
+            },
+            { id: "editor.transliterate", run: () => translitModal.open() },
+            {
+              id: "editor.toggleInputMode",
+              run: () => document.getElementById("keyboard-btn")?.click(),
+            },
+          ];
+
           document.addEventListener("keydown", (e) => {
-            // Ctrl+Shift+P - Open command palette (Phase P1-03)
-            if (
-              (e.ctrlKey || e.metaKey) &&
-              e.shiftKey &&
-              (e.key === "p" || e.key === "P")
-            ) {
-              e.preventDefault();
-              commandPalette.open();
-              return;
-            }
-
-            // Ctrl+F / Cmd+F - Open find panel (Phase P2-03)
-            if ((e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F")) {
-              e.preventDefault();
-              findReplacePanel.open(false);
-              return;
-            }
-
-            // Ctrl+H / Cmd+H (or Cmd+Option+F on macOS convention) - Open
-            // find panel with replace row visible.
-            if ((e.ctrlKey || e.metaKey) && (e.key === "h" || e.key === "H")) {
-              e.preventDefault();
-              findReplacePanel.open(true);
-              return;
-            }
-
-            // F3 / Shift+F3 - Next / previous match, even when focus is
-            // on the canvas rather than the find input.
-            if (e.key === "F3" && findReplacePanel.isOpen()) {
-              e.preventDefault();
-              if (e.shiftKey) {
-                findReplacePanel.prev();
-              } else {
-                findReplacePanel.next();
-              }
-              return;
-            }
-
-            // Ctrl+= / Ctrl+- (Cmd+= / Cmd+- on macOS) - Zoom font size
-            // in/out (Phase P8-04). `=` rather than `+` because that's
-            // the un-shifted key browsers themselves use for zoom.
-            if ((e.ctrlKey || e.metaKey) && (e.key === "=" || e.key === "+")) {
-              e.preventDefault();
-              adjustFontSize(2);
-              return;
-            }
-            if ((e.ctrlKey || e.metaKey) && e.key === "-") {
-              e.preventDefault();
-              adjustFontSize(-2);
-              return;
-            }
-
-            // Ctrl+N / Cmd+N - New tab (Phase P8-03). This one is
-            // reliable - unlike Ctrl+W/Ctrl+Tab below, browsers don't
-            // reserve Ctrl+N as aggressively (Chrome does use it for a
-            // new *window*, but still lets pages override it).
-            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "n" || e.key === "N")) {
-              e.preventDefault();
-              tabManager.createTab({ text: "" });
-              return;
-            }
-
-            // Ctrl+W / Cmd+W - Close active tab. Best-effort only: Chrome
-            // specifically refuses to let pages override closing the
-            // browser tab itself, so this will do nothing in Chrome. The
-            // × button on each tab is the reliable way to close one.
-            if ((e.ctrlKey || e.metaKey) && (e.key === "w" || e.key === "W")) {
-              e.preventDefault();
-              tabManager.closeTab(tabManager.activeId);
-              return;
-            }
-
-            // Ctrl+Tab / Ctrl+Shift+Tab - Cycle tabs. Also best-effort:
-            // browsers may intercept this for switching *browser* tabs
-            // instead of handing it to the page.
-            if (e.ctrlKey && e.key === "Tab") {
-              e.preventDefault();
-              tabManager.cycleTab(e.shiftKey ? -1 : 1);
-              return;
-            }
-
-            // Ctrl+S or Cmd+S - Open save modal
-            if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-              e.preventDefault();
-              fileManager.openSaveModal();
-            }
-
-            // Ctrl+O or Cmd+O - Open file picker
-            if ((e.ctrlKey || e.metaKey) && e.key === "o") {
-              e.preventDefault();
-              fileManager.openFile();
-            }
-
-            // Ctrl+E or Cmd+E - Export as PNG
-            if ((e.ctrlKey || e.metaKey) && e.key === "e") {
-              e.preventDefault();
-              document.getElementById("export-btn").click();
-            }
-
-            // Ctrl+T or Cmd+T - Open transliteration dialog
-            if (
-              (e.ctrlKey || e.metaKey) &&
-              !e.altKey &&
-              !e.shiftKey &&
-              (e.key === "t" || e.key === "T")
-            ) {
-              e.preventDefault();
-              translitModal.open();
-            }
-
-            // Ctrl+Alt+I - Toggle input mode
-            if (
-              (e.ctrlKey || e.metaKey) &&
-              e.altKey &&
-              (e.key === "i" || e.key === "I")
-            ) {
-              e.preventDefault();
-              const keyboardBtn = document.getElementById("keyboard-btn");
-              if (keyboardBtn) {
-                keyboardBtn.click();
+            for (const action of keyActions) {
+              if (action.guard && !action.guard()) continue;
+              if (keybindings.matches(e, action.id)) {
+                e.preventDefault();
+                action.run();
+                return;
               }
             }
 
-            // Escape - Close save modal
+            // Escape-to-close is a fixed UI convention, not a
+            // user-configurable action, so it stays outside
+            // `keyActions` above.
             if (
               e.key === "Escape" &&
               !fileManager.saveModal.classList.contains("hidden")
@@ -3751,6 +4774,29 @@
               editor ? JSON.parse(editor.get_settings_json()) : null,
             getCursor: () => editor?.get_cursor_position() ?? null,
             isReady: () => !!editor,
+            // P7-01: exposes needs_render() so the Playwright suite can
+            // assert the dirty-flag render gating is actually gating
+            // something, not just always returning true.
+            needsRender: (timestamp) => editor?.needs_render(timestamp) ?? null,
+            // WS-09: the word-suggestions popup moved from DOM `<li>`
+            // elements to a `cosmic-text`-rendered `<canvas>` (see
+            // `DOC/IMPL/WORD_SUGGESTIONS_IMPL.md`'s WS-09 section), so
+            // there's no DOM text left for the Playwright suite to
+            // assert against - this hook exposes the same
+            // `WordSuggestionsPopup` state the canvas is drawn from,
+            // not a new capability (the module-scope `wordSuggestions`
+            // singleton isn't otherwise reachable from `page.evaluate()`
+            // due to ES module scoping - same reasoning as the rest of
+            // this object).
+            getSuggestionsState: () =>
+              wordSuggestions
+                ? {
+                    visible: wordSuggestions.isOpen(),
+                    suggestions: wordSuggestions.suggestions.slice(),
+                    selected: wordSuggestions.selected,
+                    itemBounds: wordSuggestions.itemBounds.slice(),
+                  }
+                : null,
           };
 
           // Hide loading
@@ -3768,6 +4814,76 @@
           const mobileInput = document.getElementById("mobile-input");
 
           canvas.addEventListener("keydown", (e) => {
+            // Word suggestion popup (Phase P9): while it's open, these
+            // keys drive the popup instead of their usual text-editing
+            // behavior. Checked *before* everything else below, fully
+            // intercepted (no fall-through) - see the precedence note
+            // in WORD_SUGGESTIONS_PLAN.md §9.
+            if (wordSuggestions && wordSuggestions.isOpen()) {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                wordSuggestions.dismiss();
+                return;
+              }
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                wordSuggestions.next();
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                wordSuggestions.prev();
+                return;
+              }
+              // In vertical mode the popup lays suggestions out as a
+              // horizontal row of numbered columns (see `render()`) -
+              // Left/Right is the natural navigation axis there, matching
+              // Mongolian's own left-to-right column order (so Right
+              // moves to the *next* suggestion, same direction column
+              // 2 sits relative to column 1). Deliberately *not*
+              // intercepted in horizontal mode, where the popup is
+              // still the original single-column stacked list and
+              // Left/Right keeps its normal meaning (move the cursor
+              // within the word, which dismisses the popup like any
+              // other pure-motion key - see the `handle_key_down`
+              // return-value note below).
+              if (wordSuggestions.isVerticalMode()) {
+                if (e.key === "ArrowRight") {
+                  e.preventDefault();
+                  wordSuggestions.next();
+                  return;
+                }
+                if (e.key === "ArrowLeft") {
+                  e.preventDefault();
+                  wordSuggestions.prev();
+                  return;
+                }
+              }
+              if (e.key === "Tab" || e.key === "Enter") {
+                e.preventDefault();
+                wordSuggestions.accept();
+                return;
+              }
+              // Numbered columns (vertical mode) / numbered rows - "1"
+              // accepts the first suggestion, "2" the second, etc.,
+              // matching the number badge each column shows. Only
+              // intercepted when it's actually a valid selection for
+              // however many suggestions are showing right now -
+              // pressing e.g. "9" with only 3 suggestions falls through
+              // to ordinary typing instead (inserts "9" as literal
+              // text, same as if the popup weren't open).
+              if (/^[1-9]$/.test(e.key)) {
+                if (wordSuggestions.acceptByNumber(Number(e.key))) {
+                  e.preventDefault();
+                  return;
+                }
+              }
+              // Any other key (typing more, Arrow Left/Right in
+              // horizontal mode, etc.) falls through to normal handling
+              // below, which ends with a refresh() call that updates or
+              // hides the popup based on the new cursor/word state.
+            }
+
             try {
               // Handle Ctrl+C (Copy) - intercept before Rust handles it
               if ((e.ctrlKey || e.metaKey) && e.key === "c") {
@@ -3803,6 +4919,7 @@
                       .writeText(selectedText)
                       .then(() => {
                         editor.delete_selection();
+                        if (wordSuggestions) wordSuggestions.refresh();
                         updateStatus(
                           "Cut: " +
                             selectedText.substring(0, 20) +
@@ -3827,6 +4944,7 @@
                     .then((text) => {
                       if (text) {
                         editor.insert_text(text);
+                        if (wordSuggestions) wordSuggestions.refresh();
                         updateStatus(
                           "Pasted: " +
                             text.substring(0, 20) +
@@ -3850,7 +4968,7 @@
                 !e.metaKey &&
                 !e.altKey
               ) {
-                const convertedChar = latinToMongolianMap[e.key];
+                const convertedChar = latinMapping.effective[e.key];
                 if (convertedChar) {
                   e.preventDefault();
 
@@ -3872,6 +4990,7 @@
                   } else {
                     editor.insert_text(convertedChar);
                   }
+                  if (wordSuggestions) wordSuggestions.refresh();
                   return;
                 }
               }
@@ -3879,7 +4998,22 @@
               // For non-mapped keys, clear the buffer
               bufferedFormatControl = null;
 
-              editor.handle_key_down(e);
+              const textChanged = editor.handle_key_down(e);
+              if (wordSuggestions) {
+                // Per the trigger table in WORD_SUGGESTIONS_PLAN.md §7:
+                // only actually-typing keystrokes should refresh the
+                // popup. Pure cursor movement (arrow keys, Home/End,
+                // PageUp/Down) returns `false` here - refreshing on
+                // those would show suggestions merely for navigating
+                // through existing text, which isn't what the user is
+                // asking for. The word context changed either way, so
+                // dismiss rather than leaving a stale popup open.
+                if (textChanged) {
+                  wordSuggestions.refresh();
+                } else {
+                  wordSuggestions.dismiss();
+                }
+              }
             } catch (err) {
               console.error("Key down error:", err);
             }
@@ -3921,6 +5055,9 @@
 
           // Unified pointer down handler
           function handlePointerDown(e) {
+            // A click/tap relocates the cursor away from whatever word
+            // suggestions were computed for.
+            if (wordSuggestions) wordSuggestions.dismiss();
             try {
               // For touch events, let Rust handle everything
               if (e.type === "touchstart") {
@@ -4061,38 +5198,10 @@
             canvas.focus();
           }
 
-          // Load Latin to Mongolian character mapping
-          async function loadLatinMapping() {
-            try {
-              // Add timestamp to prevent caching
-              const response = await fetch("config/latin.csv?v=" + Date.now());
-              const csvText = await response.text();
-              const lines = csvText.trim().split("\n");
-
-              // Skip header line
-              for (let i = 1; i < lines.length; i++) {
-                const line = lines[i];
-                if (line) {
-                  const parts = line.split(",");
-                  const key = parts[0]?.trim(); // Only trim the key
-                  const char = parts[1]; // Don't trim the character - it might be a format control
-
-                  // Handle comma mapping: if key is empty and we have a third part, key is comma
-                  if (key === "" && parts.length >= 3 && parts[2]) {
-                    latinToMongolianMap[","] = parts[2];
-                  } else if (key && char !== undefined && char !== "") {
-                    // Keep the exact case from CSV (a→ᠠ, A→ᠠ, n→ᠨ, N→ᠩ, etc.)
-                    latinToMongolianMap[key] = char;
-                  }
-                }
-              }
-            } catch (err) {
-              console.error("Failed to load latin.csv:", err);
-            }
-          }
-
-          // Load the mapping
-          await loadLatinMapping();
+          // Load the Latin-to-Mongolian mapping (base CSV + any saved
+          // overrides - see `LatinMappingManager`, P3-03).
+          latinMapping = new LatinMappingManager();
+          await latinMapping.loadBase();
 
           // Function to convert text based on input mode (unused, kept for compatibility)
           function convertText(text, useMapping) {
@@ -4100,7 +5209,7 @@
 
             let result = "";
             for (let char of text) {
-              result += latinToMongolianMap[char] || char;
+              result += latinMapping.effective[char] || char;
             }
             return result;
           }
@@ -4123,7 +5232,7 @@
                 if (isInputModeActive) {
                   let convertedText = "";
                   for (let char of text) {
-                    const convertedChar = latinToMongolianMap[char] || char;
+                    const convertedChar = latinMapping.effective[char] || char;
 
                     // Check if this is a format control character that should be buffered
                     if (convertedChar === "\u202F") {
@@ -4249,6 +5358,7 @@
               const versionText = await response.text();
               if (editor) {
                 editor.set_text(versionText);
+                if (wordSuggestions) wordSuggestions.dismiss();
                 updateStatus("Loaded version information");
                 // Focus canvas after loading
                 if (isMobileDevice) {
@@ -4275,6 +5385,7 @@
               }
               editor.set_text("");
               if (tabManager) tabManager.markActiveClean();
+              if (wordSuggestions) wordSuggestions.dismiss();
               updateStatus("Text cleared");
               // Focus canvas after action
               if (isMobileDevice) {
