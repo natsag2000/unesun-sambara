@@ -18,6 +18,7 @@ use editor_core::events::{EditorEvent, KeyInfo};
 use editor_core::format_control;
 use editor_core::history::EditKind;
 use editor_core::plugin::{PluginContext, PluginRegistry};
+use editor_core::word_boundary::{self, Script};
 use config::settings::EditorSettings;
 use translit::renderer::TranslitRenderer;
 
@@ -30,6 +31,12 @@ const VERTICAL_LEFT_PADDING: i32 = 10;
 // top-to-bottom) it becomes a top strip of column numbers instead.
 const GUTTER_WIDTH: i32 = 44;
 const GUTTER_HEIGHT: i32 = 26;
+
+// Phase P9: don't show the word suggestion popup until the word being
+// typed is at least this many characters - avoids a distracting popup
+// after every single keystroke at the very start of a word (see
+// `prompt/WORD_SUGGESTIONS_PLAN.md` §9).
+const MIN_SUGGESTION_WORD_LEN: usize = 2;
 
 #[wasm_bindgen]
 pub struct WasmEditor {
@@ -402,7 +409,15 @@ impl WasmEditor {
         self.apply_delete_plan(plan);
     }
 
-    pub fn handle_key_down(&mut self, event: KeyboardEvent) -> Result<(), JsValue> {
+    /// Returns whether this keystroke actually changed the buffer text
+    /// (as opposed to just moving the cursor/selection, or doing
+    /// nothing). JS uses this to decide whether to refresh the word
+    /// suggestion popup or dismiss it - per the trigger table in
+    /// `WORD_SUGGESTIONS_PLAN.md` §7, pure cursor movement (arrow keys,
+    /// Home/End, PageUp/Down) should dismiss the popup (the word
+    /// context changed), not refresh it, since the user isn't actively
+    /// typing.
+    pub fn handle_key_down(&mut self, event: KeyboardEvent) -> Result<bool, JsValue> {
         // P7-01: set unconditionally rather than per-branch - every
         // branch below either changes the cursor/selection/text, or is
         // a no-op (e.g. Ctrl+C) cheap enough that an extra unnecessary
@@ -440,7 +455,7 @@ impl WasmEditor {
             self.state.cursor_visible = true;
             self.state.last_render_time = now;
             self.dispatch_event(EditorEvent::TextChanged);
-            return Ok(());
+            return Ok(true);
         }
         // Ctrl+Y as an alias for redo (common on Windows).
         if self.ctrl_pressed && !event.alt_key() && (key == "y" || key == "Y") {
@@ -449,7 +464,7 @@ impl WasmEditor {
             self.state.cursor_visible = true;
             self.state.last_render_time = now;
             self.dispatch_event(EditorEvent::TextChanged);
-            return Ok(());
+            return Ok(true);
         }
 
         // Categorize the branch that actually runs so we can dispatch a
@@ -560,7 +575,7 @@ impl WasmEditor {
                 // Allow Ctrl+V (paste), Ctrl+C (copy), Ctrl+X (cut) to work natively
                 if self.ctrl_pressed && (key == "v" || key == "c" || key == "x") {
                     // Don't prevent default - let browser handle clipboard
-                    return Ok(());
+                    return Ok(false);
                 }
 
                 // Handle regular character input
@@ -593,7 +608,7 @@ impl WasmEditor {
             KeyEffect::TextChange => self.dispatch_event(EditorEvent::TextChanged),
         }
 
-        Ok(())
+        Ok(effect == KeyEffect::TextChange)
     }
 
     pub fn handle_key_up(&mut self, event: KeyboardEvent) {
@@ -855,11 +870,13 @@ impl WasmEditor {
                 None,
             );
         });
-        // Loading a new document invalidates undo history (P2-01) and
-        // any in-progress find/replace matches (P2-03) - both refer to
-        // positions in the *old* text.
+        // Loading a new document invalidates undo history (P2-01), any
+        // in-progress find/replace matches (P2-03), and any word
+        // suggestions (P9) - all three refer to positions in the *old*
+        // text.
         self.state.discard_history();
         self.state.find_replace.clear();
+        self.state.suggestions.clear();
         // `set_text` is used both for programmatic edits and to seed a
         // loaded document; the plan (P1-01) treats this as a
         // document-load event so plugins can re-scan the buffer.
@@ -1125,6 +1142,208 @@ impl WasmEditor {
         self.state.cursor_visible = true;
     }
 
+    // ================= Word suggestion popup (Phase P9) =================
+    //
+    // Shares `self.dictionary` with the Transliteration modal below -
+    // whichever feature the user reaches for first triggers the lazy
+    // load (`translit_load_dictionary`); there's only ever one
+    // dictionary instance, not a separate one per feature. See
+    // `prompt/WORD_SUGGESTIONS_PLAN.md` §6/§8.
+
+    /// Builds the `{ hasSuggestions: false, ... }` result shared by
+    /// every early-return branch of `get_word_suggestions_json` below.
+    fn no_word_suggestions() -> Result<JsValue, JsValue> {
+        let obj = js_sys::Object::new();
+        js_sys::Reflect::set(&obj, &"hasSuggestions".into(), &false.into())?;
+        js_sys::Reflect::set(&obj, &"suggestions".into(), &js_sys::Array::new())?;
+        js_sys::Reflect::set(&obj, &"anchorX".into(), &0.into())?;
+        js_sys::Reflect::set(&obj, &"anchorY".into(), &0.into())?;
+        js_sys::Reflect::set(&obj, &"lineAdvance".into(), &0.into())?;
+        Ok(obj.into())
+    }
+
+    /// Recomputes the word suggestion popup's state for the current
+    /// cursor position. Returns
+    /// `{ hasSuggestions, suggestions: string[], anchorX, anchorY, lineAdvance }` -
+    /// `anchorX`/`anchorY` are the cursor's position in the same
+    /// canvas-pixel space `render()` draws into (`buffer_pixel -
+    /// scroll_offset + content_padding`, cosmic-text's own
+    /// `cursor_position()` composing directly with the same transform
+    /// used everywhere else in this file). JS converts that to CSS
+    /// position via `devicePixelRatio` and the canvas's
+    /// `getBoundingClientRect()` - the exact inverse of what
+    /// `handle_mouse_down` et al. already do the other direction.
+    /// `lineAdvance` is the line/column spacing at the cursor, also in
+    /// canvas-pixel space - JS uses it to offset the popup a full
+    /// line/column clear of the cursor rather than guessing a fixed
+    /// pixel gap (which in vertical mode landed inside the *next*
+    /// column's territory instead of a clean gap beside the current
+    /// one).
+    ///
+    /// Returns `hasSuggestions: false` (never an error) if the feature
+    /// is disabled in settings, the dictionary hasn't loaded yet, or
+    /// the cursor isn't inside/adjacent to a word at least
+    /// `MIN_SUGGESTION_WORD_LEN` characters long - all "nothing to show
+    /// right now," not failure conditions.
+    #[wasm_bindgen]
+    pub fn get_word_suggestions_json(&mut self) -> Result<JsValue, JsValue> {
+        self.state.suggestions.clear();
+
+        if !self.state.settings.editor.word_suggestions_enabled {
+            return Self::no_word_suggestions();
+        }
+        let Some(dictionary) = &self.dictionary else {
+            return Self::no_word_suggestions();
+        };
+
+        // This is called synchronously right after `handle_key_down`
+        // inserts a character - *before* the next `render()` call (the
+        // only other place that shapes the buffer) has a chance to run
+        // on the following animation frame. Without this,
+        // `cursor_position()` below reads stale layout runs from
+        // whatever was last shaped (the state *before* this keystroke,
+        // or even the empty buffer if this is the very first edit), so
+        // the popup's anchor position would silently fall back to a
+        // stale/default value instead of tracking the cursor - visible
+        // as the popup appearing "stuck" in the same spot no matter how
+        // much more is typed. `shape_as_needed` is the same call
+        // `render()` makes and is a no-op if nothing changed, so this
+        // is safe to call unconditionally here.
+        self.state.editor.shape_as_needed(&mut self.state.font_system, false);
+
+        let cursor = self.state.editor.cursor();
+        let cursor_line = cursor.line;
+        let cursor_byte_index = cursor.index;
+
+        let line_text = self.state.editor.with_buffer(|buffer| {
+            buffer
+                .lines
+                .get(cursor_line)
+                .map(|line| line.text().to_string())
+        });
+        let Some(line_text) = line_text else {
+            return Self::no_word_suggestions();
+        };
+
+        let chars: Vec<char> = line_text.chars().collect();
+        let char_index = line_text[..cursor_byte_index.min(line_text.len())]
+            .chars()
+            .count();
+
+        let Some((start_char, end_char)) = word_boundary::current_word_bounds(&chars, char_index)
+        else {
+            return Self::no_word_suggestions();
+        };
+        if end_char - start_char < MIN_SUGGESTION_WORD_LEN {
+            return Self::no_word_suggestions();
+        }
+
+        let word_chars = &chars[start_char..end_char];
+        let Some(script) = word_boundary::classify_script(word_chars) else {
+            return Self::no_word_suggestions();
+        };
+        if script == Script::Other {
+            return Self::no_word_suggestions();
+        }
+
+        let word: String = word_chars.iter().collect();
+        let suggestions = dictionary.suggest(&word, script);
+        if suggestions.is_empty() {
+            return Self::no_word_suggestions();
+        }
+
+        // Character-index bounds -> byte-index Cursor positions, for
+        // accept_word_suggestion's delete_range/insert_at below.
+        let byte_index_of = |char_idx: usize| -> usize {
+            line_text
+                .char_indices()
+                .nth(char_idx)
+                .map(|(b, _)| b)
+                .unwrap_or(line_text.len())
+        };
+        self.state.suggestions.word_start = Some(Cursor::new(cursor_line, byte_index_of(start_char)));
+        self.state.suggestions.word_end = Some(Cursor::new(cursor_line, byte_index_of(end_char)));
+        self.state.suggestions.suggestions = suggestions;
+
+        let (buffer_x, buffer_y) = self.state.editor.cursor_position().unwrap_or((0, 0));
+        let (left_padding, top_padding) = self.content_padding();
+        let anchor_x = buffer_x - self.scroll_offset.0 + left_padding;
+        let anchor_y = buffer_y - self.scroll_offset.1 + top_padding;
+
+        // The distance from one line to the next in horizontal mode -
+        // or, equally, from one *column* to the next in vertical mode,
+        // since cosmic-text's vertical layout reuses the same
+        // `line_height` metric as the spacing between successive
+        // columns (see `draw_gutter`'s use of the same value for
+        // column-label placement). JS uses this to offset the popup a
+        // full column/line clear of the cursor's own line - a fixed
+        // guess here previously landed inside the *next* column's
+        // territory in vertical mode instead of a clean gap beside the
+        // current one (see git history for the visual bug this fixed).
+        let line_advance = self
+            .state
+            .editor
+            .with_buffer(|buffer| {
+                buffer
+                    .layout_runs()
+                    .find(|run| run.line_i == cursor_line)
+                    .map(|run| run.line_height)
+            })
+            .unwrap_or(24.0);
+
+        let arr = js_sys::Array::new();
+        for s in &self.state.suggestions.suggestions {
+            arr.push(&JsValue::from_str(s));
+        }
+        let obj = js_sys::Object::new();
+        js_sys::Reflect::set(&obj, &"hasSuggestions".into(), &true.into())?;
+        js_sys::Reflect::set(&obj, &"suggestions".into(), &arr)?;
+        js_sys::Reflect::set(&obj, &"anchorX".into(), &(anchor_x as f64).into())?;
+        js_sys::Reflect::set(&obj, &"anchorY".into(), &(anchor_y as f64).into())?;
+        js_sys::Reflect::set(&obj, &"lineAdvance".into(), &(line_advance as f64).into())?;
+        Ok(obj.into())
+    }
+
+    /// Accepts a suggestion, replacing the word it was computed for
+    /// with `text`. Re-resolves nothing beyond what
+    /// `get_word_suggestions_json` already stored (`word_start`/
+    /// `word_end`) - if the buffer changed since then in a way that
+    /// invalidates those positions, cosmic-text's own range handling
+    /// degrades gracefully rather than panicking, and the popup is
+    /// always dismissed by the JS layer's own trigger logic before the
+    /// buffer could change again out from under it (see
+    /// `WORD_SUGGESTIONS_PLAN.md` §7's trigger table). One atomic undo
+    /// step, same convention as every other programmatic multi-char
+    /// edit in this codebase (P2-01, P2-03).
+    #[wasm_bindgen]
+    pub fn accept_word_suggestion(&mut self, text: &str) -> Result<(), JsValue> {
+        self.dirty = true; // P7-01
+        let (Some(start), Some(end)) =
+            (self.state.suggestions.word_start, self.state.suggestions.word_end)
+        else {
+            return Ok(());
+        };
+
+        self.state.begin_history_group(EditKind::Paste, js_sys::Date::now());
+        self.state.editor.delete_range(start, end);
+        let new_cursor = self.state.editor.insert_at(start, text, None);
+        self.state.flush_history_group();
+
+        self.state.editor.set_cursor(new_cursor);
+        self.state.suggestions.clear();
+        self.dispatch_event(EditorEvent::TextChanged);
+        Ok(())
+    }
+
+    /// Clears the popup's state without changing the buffer - called on
+    /// Escape, on cursor-moving keys/clicks, and on document-changing
+    /// actions (tab switch, clear, open) per the trigger table in
+    /// `WORD_SUGGESTIONS_PLAN.md` §7.
+    #[wasm_bindgen]
+    pub fn dismiss_word_suggestions(&mut self) {
+        self.state.suggestions.clear();
+    }
+
     // ================= Cyrillic -> Mongolian transliteration =================
 
     /// Fetches and parses the dictionary TSV. Safe to call multiple times; the
@@ -1141,6 +1360,41 @@ impl WasmEditor {
         );
         self.dictionary = Some(dict);
         Ok(())
+    }
+
+    /// Synchronous alternative to `translit_load_dictionary` above, for
+    /// the word suggestion popup (Phase P9). Takes already-fetched TSV
+    /// text and parses it in one atomic call - no `.await` inside Rust,
+    /// so no cross-await borrow of `self` for anything else running on
+    /// the same JS event loop to collide with.
+    ///
+    /// This distinction matters in practice, not just in theory: an
+    /// async Rust method holds its `&mut self` borrow for the entire
+    /// span between `.await` points, for as long as wasm-bindgen keeps
+    /// that generated JS `Promise` unresolved. `translit_load_dictionary`
+    /// gets away with that because the Transliteration modal traps
+    /// keyboard focus on its own input while loading - the canvas's own
+    /// `keydown`/`keyup`/mouse listeners and the `render()` loop can't
+    /// fire during that window. The word suggestion popup's dictionary
+    /// load is triggered *by* canvas typing, the one context where that
+    /// assumption doesn't hold - a `keyup` for the very keystroke that
+    /// triggered the load can (and did, during manual testing) fire
+    /// while the load's `await` is still pending, tripping
+    /// wasm-bindgen's "recursive use of an object" panic. Fetching the
+    /// text in JS (a plain `fetch()`, no WASM object involved) and
+    /// handing the already-resolved string to this synchronous method
+    /// avoids the hazard entirely - see `WordSuggestionsPopup.ensureDictionaryLoaded`
+    /// in `index.html`.
+    #[wasm_bindgen]
+    pub fn load_dictionary_text(&mut self, text: &str) {
+        if self.dictionary.is_some() {
+            return;
+        }
+        let dict = Dictionary::from_tsv(text);
+        web_sys::console::log_1(
+            &format!("Word suggestion dictionary loaded: {} entries", dict.len()).into(),
+        );
+        self.dictionary = Some(dict);
     }
 
     /// Returns true if the dictionary has been loaded.

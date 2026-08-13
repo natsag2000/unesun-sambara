@@ -100,6 +100,13 @@ pub struct EditorBehaviorSettings {
     /// source of truth for actual rendering.
     #[serde(default = "default_theme_id")]
     pub theme_id: String,
+    /// Show the word suggestion popup while typing (Phase P9). On by
+    /// default - matches the plan's "most important feature" framing;
+    /// unlike `show_line_numbers` (an opt-in visual change), this one
+    /// starts active so it's actually discoverable. `WasmEditor` checks
+    /// this before doing any suggestion work at all.
+    #[serde(default = "default_word_suggestions_enabled")]
+    pub word_suggestions_enabled: bool,
 }
 
 fn default_word_wrap() -> bool {
@@ -110,6 +117,10 @@ fn default_theme_id() -> String {
     "default-light".to_string()
 }
 
+fn default_word_suggestions_enabled() -> bool {
+    true
+}
+
 impl Default for EditorBehaviorSettings {
     fn default() -> Self {
         Self {
@@ -117,6 +128,7 @@ impl Default for EditorBehaviorSettings {
             show_line_numbers: false,
             word_wrap: true,
             theme_id: default_theme_id(),
+            word_suggestions_enabled: default_word_suggestions_enabled(),
         }
     }
 }

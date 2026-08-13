@@ -391,6 +391,29 @@
         </div>
 
         <!--
+          Word suggestion popup (Phase P9). Anchored next to the text
+          cursor (position set dynamically in JS from
+          `get_word_suggestions_json()`'s pixel coordinates - see
+          `WordSuggestionsPopup.position()`), unlike the fixed-position
+          `#find-panel` below. Backed by `WasmEditor::get_word_suggestions_json`
+          / `accept_word_suggestion` / `dismiss_word_suggestions`
+          (`src/lib.rs`), which share the Cyrillic<->Mongolian
+          dictionary the Transliteration modal already uses.
+        -->
+        <ul
+          id="word-suggestions-popup"
+          class="hidden absolute z-40 bg-editor-header border border-editor-border rounded shadow-2xl overflow-hidden"
+          style="max-width: 20rem"
+        ></ul>
+        <!--
+          Note: `WordSuggestionsPopup.render()` overrides the
+          `max-width`/`max-height` inline styles and the
+          `overflow-hidden`/`overflow-y-auto` classes above on every
+          call - the ones baked into the markup here are just the
+          horizontal-mode defaults, used before the popup ever shows.
+        -->
+
+        <!--
           Find & Replace panel (Phase P2-03). Slides down from the top of
           the canvas area. Backed by the `editor.find.*` commands
           contributed by `FindReplacePlugin` (`src/plugins/find_replace.rs`),
@@ -878,6 +901,22 @@
                   class="w-5 h-5 accent-editor-accent"
                 />
               </label>
+
+              <label
+                class="flex items-center justify-between gap-3 bg-editor-bg border border-editor-border rounded px-4 py-3 cursor-pointer"
+              >
+                <span>
+                  <span class="block text-sm text-editor-text">Word suggestions</span>
+                  <span class="block text-xs text-editor-text opacity-70"
+                    >Show a completion popup next to the cursor while typing (Phase P9)</span
+                  >
+                </span>
+                <input
+                  type="checkbox"
+                  id="word-suggestions-enabled"
+                  class="w-5 h-5 accent-editor-accent"
+                />
+              </label>
             </div>
           </div>
 
@@ -1198,7 +1237,7 @@
     </div>
 
     <script type="module">
-      import init, { WasmEditor } from "./pkg/uns_editor.js?v=9";
+      import init, { WasmEditor } from "./pkg/uns_editor.js?v=11";
 
       let editor = null;
       let animationId = null;
@@ -1678,6 +1717,7 @@
             backgroundColorHex: document.getElementById("background-color-hex"),
             showLineNumbers: document.getElementById("show-line-numbers"),
             wordWrap: document.getElementById("word-wrap"),
+            wordSuggestionsEnabled: document.getElementById("word-suggestions-enabled"),
             themeSelect: document.getElementById("theme-select"),
             cursorColor: document.getElementById("cursor-color"),
             cursorColorHex: document.getElementById("cursor-color-hex"),
@@ -2369,6 +2409,8 @@
 
             this.elements.showLineNumbers.checked = !!settings.editor.show_line_numbers;
             this.elements.wordWrap.checked = settings.editor.word_wrap !== false;
+            this.elements.wordSuggestionsEnabled.checked =
+              settings.editor.word_suggestions_enabled !== false;
 
             // Restore the theme dropdown's selection (purely cosmetic -
             // `appearance` above is already the real state regardless of
@@ -2409,6 +2451,7 @@
                 ...current.editor,
                 show_line_numbers: this.elements.showLineNumbers.checked,
                 word_wrap: this.elements.wordWrap.checked,
+                word_suggestions_enabled: this.elements.wordSuggestionsEnabled.checked,
                 theme_id: this.activeThemeId,
               },
             };
@@ -2528,6 +2571,11 @@
           if (!tab || !this.editor) return;
           this.editor.set_text(tab.text || "");
           this.editor.set_cursor_position(tab.cursorLine || 1, tab.cursorColumn || 1);
+          // Every path that calls this (switchTo, closeTab's neighbor
+          // switch, createTab) replaces the whole document - any
+          // suggestions computed for the previous tab's word are
+          // meaningless now (Phase P9).
+          if (wordSuggestions) wordSuggestions.dismiss();
         }
 
         // Bootstrap the very first tab from whatever the WASM editor
@@ -4142,6 +4190,306 @@
 
       let keybindings = null;
 
+      // Word suggestion popup (Phase P9, `prompt/WORD_SUGGESTIONS_PLAN.md`).
+      //
+      // Lazily loads the same Cyrillic<->Mongolian dictionary the
+      // Transliteration modal (`TranslitModal`) uses, the first time a
+      // suggestion is actually needed - same lazy-load convention every
+      // other feature in this app follows (auto-save, tabs, Latin
+      // mapping, and the modal's own dictionary load all defer their
+      // expensive first-use work). `refresh()` is the single entry
+      // point every trigger site in `main()` calls; it's `async` only
+      // because of that first-load path - once the dictionary is
+      // loaded, `refresh()` still returns quickly (a single synchronous
+      // WASM call).
+      class WordSuggestionsPopup {
+        static DICTIONARY_URL = "dist/dictionary/01_kv.tsv";
+
+        constructor(editor) {
+          this.editor = editor;
+          this.popup = document.getElementById("word-suggestions-popup");
+          this.dictionaryLoaded = false;
+          this.loadPromise = null;
+          this.visible = false;
+          this.suggestions = [];
+          this.selected = 0;
+        }
+
+        isOpen() {
+          return this.visible;
+        }
+
+        // Whether the editor is currently in Mongolian vertical-script
+        // mode (`#vertical-btn` / `settings.editor.orientation`).
+        // `render()` and `position()` both need this - checked fresh
+        // each time rather than cached, matching how the rest of the
+        // app (e.g. `updateCursorPosition()`) reads orientation.
+        isVerticalMode() {
+          try {
+            return (
+              JSON.parse(this.editor.get_settings_json()).editor
+                .orientation === "vertical"
+            );
+          } catch (e) {
+            return false;
+          }
+        }
+
+        async ensureDictionaryLoaded() {
+          if (this.dictionaryLoaded) return;
+          // Multiple keystrokes can each call `refresh()` -> this method
+          // while the fetch below is still in flight (typing doesn't wait
+          // for the dictionary). Rather than have every call after the
+          // first just no-op, they all await the *same* in-flight promise
+          // so each of their `refresh()` callers naturally continues (with
+          // whatever is the current cursor/buffer state at that later
+          // point - see `refresh()`) once the real load finishes, instead
+          // of silently doing nothing for the keystroke that happened to
+          // land during the load window.
+          if (!this.loadPromise) {
+            this.loadPromise = (async () => {
+              try {
+                // Deliberately *not* `editor.translit_load_dictionary()`
+                // (async, holds a mutable WASM borrow across its `await`)
+                // - this load is triggered by canvas typing, so a `keyup`
+                // for the very keystroke that triggered it can fire while
+                // that borrow is still held, tripping wasm-bindgen's
+                // "recursive use of an object" panic (confirmed during
+                // manual testing, not just theoretical). Fetching the text
+                // in plain JS - no WASM object involved - and handing the
+                // already-resolved string to the synchronous
+                // `load_dictionary_text` avoids the hazard entirely. See
+                // that method's doc comment in `src/lib.rs` for the full
+                // explanation.
+                const response = await fetch(
+                  WordSuggestionsPopup.DICTIONARY_URL,
+                );
+                if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}`);
+                }
+                const text = await response.text();
+                this.editor.load_dictionary_text(text);
+                this.dictionaryLoaded = true;
+              } catch (e) {
+                console.error("Word suggestions: dictionary load failed:", e);
+              }
+            })();
+          }
+          await this.loadPromise;
+        }
+
+        // Called after every keystroke that could change the word at
+        // the cursor (see the trigger table in
+        // WORD_SUGGESTIONS_PLAN.md §7). Safe to call liberally - it's a
+        // no-op past the first call once the dictionary is loaded, and
+        // hides the popup itself when there's nothing to show.
+        async refresh() {
+          if (!this.dictionaryLoaded) {
+            await this.ensureDictionaryLoaded();
+            if (!this.dictionaryLoaded) {
+              // Load failed (e.g. network error) - nothing to show.
+              return;
+            }
+            // No "stale keystroke" concern here: `handle_key_down`
+            // already applied every keystroke to the Rust buffer
+            // synchronously *before* its `refresh()` call ran, so the
+            // WASM editor's cursor/buffer state is always current at
+            // the point `get_word_suggestions_json()` below is called,
+            // regardless of how long the dictionary fetch took or how
+            // many more keystrokes landed while it was in flight.
+          }
+
+          let result;
+          try {
+            result = this.editor.get_word_suggestions_json();
+          } catch (e) {
+            console.error("get_word_suggestions_json failed:", e);
+            this.hide();
+            return;
+          }
+
+          if (!result || !result.hasSuggestions) {
+            this.hide();
+            return;
+          }
+
+          this.suggestions = Array.from(result.suggestions || []);
+          this.selected = 0;
+          this.render();
+          this.position(result.anchorX, result.anchorY, result.lineAdvance);
+          this.show();
+        }
+
+        render() {
+          const isVertical = this.isVerticalMode();
+          this.popup.classList.toggle("flex", isVertical);
+          this.popup.classList.toggle("flex-row", isVertical);
+          this.popup.classList.toggle("items-start", isVertical);
+          this.popup.style.maxWidth = isVertical ? "90vw" : "20rem";
+          this.popup.style.maxHeight = isVertical ? "none" : "60vh";
+          this.popup.classList.toggle("overflow-x-auto", isVertical);
+          this.popup.classList.toggle("overflow-y-auto", false);
+          this.popup.classList.toggle("overflow-hidden", !isVertical);
+
+          this.popup.innerHTML = "";
+          this.suggestions.forEach((text, i) => {
+            const li = document.createElement("li");
+            const isSelected = i === this.selected;
+            // `mousedown` (not `click`) so accepting fires before the
+            // canvas's own blur handling would otherwise dismiss the
+            // popup first.
+            li.addEventListener("mousedown", (e) => {
+              e.preventDefault();
+              this.acceptIndex(i);
+            });
+
+            if (isVertical) {
+              // Each suggestion gets its own column - a small,
+              // ordinary-horizontal number badge (so it reads as a
+              // digit, not rotated) above the word itself, which is
+              // still rendered top-to-bottom like the canvas's own
+              // Mongolian text (see the `text-orientation: mixed` note
+              // in the horizontal-mode branch's history - Mongolian's
+              // natural form is already vertical). The number doubles
+              // as a click target and matches the 1-8 keyboard shortcut
+              // wired up in the canvas `keydown` handler below.
+              li.className =
+                "flex flex-col items-center gap-1 px-2 py-2 cursor-pointer border-r border-editor-border last:border-r-0 " +
+                (isSelected
+                  ? "bg-editor-accent text-white"
+                  : "text-editor-text hover:bg-editor-border");
+              const numberEl = document.createElement("span");
+              numberEl.textContent = String(i + 1);
+              numberEl.className =
+                "suggestion-number text-xs font-mono leading-none " +
+                (isSelected ? "text-white" : "text-editor-text-dim");
+              const wordEl = document.createElement("span");
+              wordEl.textContent = text;
+              wordEl.style.writingMode = "vertical-lr";
+              wordEl.style.textOrientation = "mixed";
+              wordEl.className = "suggestion-word text-sm";
+              li.appendChild(numberEl);
+              li.appendChild(wordEl);
+            } else {
+              li.textContent = text;
+              li.className =
+                "px-3 py-1.5 text-sm cursor-pointer whitespace-nowrap truncate " +
+                (isSelected
+                  ? "bg-editor-accent text-white"
+                  : "text-editor-text hover:bg-editor-border");
+            }
+            this.popup.appendChild(li);
+          });
+        }
+
+        position(anchorX, anchorY, lineAdvance) {
+          const canvas = document.getElementById("editor-canvas");
+          const container = document.getElementById("canvas-container");
+          const canvasRect = canvas.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
+          const dpr = window.devicePixelRatio || 1;
+
+          // anchorX/anchorY/lineAdvance are all in canvas-pixel (device
+          // pixel) space; convert to CSS pixels, then to a position
+          // relative to #canvas-container (this popup's positioning
+          // parent) rather than the viewport.
+          const left = canvasRect.left - containerRect.left + anchorX / dpr;
+          const top = canvasRect.top - containerRect.top + anchorY / dpr;
+          // `lineAdvance` is the actual line/column spacing at the
+          // cursor (see `get_word_suggestions_json`'s doc comment in
+          // `src/lib.rs`) - a fixed guess here previously landed the
+          // popup inside the *next* column's territory in vertical
+          // mode rather than a clean gap beside the current one, since
+          // column width isn't a fixed constant (depends on font size
+          // and the current per-line metrics).
+          const advance = (lineAdvance || 24) / dpr;
+
+          if (this.isVerticalMode()) {
+            // Deliberately *not* a full `advance` (column width) here
+            // - columns sit edge-to-edge with no gap between them, so
+            // offsetting a whole column over always lands exactly at
+            // the start of the *next* column, unavoidably overlaying
+            // whatever's already there rather than reading as "beside
+            // the cursor." A small fixed gap keeps the popup hugging
+            // the cursor's own glyph instead.
+            const verticalGap = 6;
+            this.popup.style.left = `${Math.max(0, left + verticalGap)}px`;
+            this.popup.style.top = `${Math.max(0, top)}px`;
+          } else {
+            this.popup.style.left = `${Math.max(0, left)}px`;
+            this.popup.style.top = `${top + advance}px`;
+          }
+        }
+
+        show() {
+          this.visible = true;
+          this.popup.classList.remove("hidden");
+        }
+
+        hide() {
+          this.visible = false;
+          this.suggestions = [];
+          this.popup.classList.add("hidden");
+          this.popup.innerHTML = "";
+        }
+
+        next() {
+          if (this.suggestions.length === 0) return;
+          this.selected = (this.selected + 1) % this.suggestions.length;
+          this.render();
+        }
+
+        prev() {
+          if (this.suggestions.length === 0) return;
+          this.selected =
+            (this.selected - 1 + this.suggestions.length) % this.suggestions.length;
+          this.render();
+        }
+
+        acceptIndex(index) {
+          const text = this.suggestions[index];
+          if (text === undefined) return;
+          try {
+            this.editor.accept_word_suggestion(text);
+          } catch (e) {
+            console.error("accept_word_suggestion failed:", e);
+          }
+          this.hide();
+        }
+
+        accept() {
+          this.acceptIndex(this.selected);
+        }
+
+        // `oneBasedNumber` is what the user actually typed (the "1" in
+        // "press 1 to accept the first suggestion", matching the number
+        // badge drawn above each column in vertical mode - see
+        // `render()`). Returns whether it was a valid selection, so the
+        // caller (canvas `keydown`) can fall through to ordinary typing
+        // for out-of-range digits (e.g. pressing "9" when there are
+        // only 3 suggestions should just insert "9", not silently do
+        // nothing).
+        acceptByNumber(oneBasedNumber) {
+          const index = oneBasedNumber - 1;
+          if (index < 0 || index >= this.suggestions.length) {
+            return false;
+          }
+          this.acceptIndex(index);
+          return true;
+        }
+
+        dismiss() {
+          try {
+            this.editor.dismiss_word_suggestions();
+          } catch (e) {
+            // Ignore - editor may not be ready yet.
+          }
+          this.hide();
+        }
+      }
+
+      let wordSuggestions = null;
+
       async function main() {
         try {
           // Detect mobile device first (needed throughout initialization)
@@ -4154,7 +4502,7 @@
           let bufferedFormatControl = null; // Buffer for U+202F or U+180E
 
           // Initialize WASM with cache-busting parameter
-          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=9" });
+          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=11" });
 
           // Setup canvas
           const { width, height } = resizeCanvas();
@@ -4250,6 +4598,11 @@
           // `keybindings.matches()` for every action.
           keybindings = new KeybindingManager();
           await keybindings.loadDefaults(editor);
+
+          // Word suggestion popup (Phase P9). No async setup needed
+          // here - the dictionary loads lazily on first real trigger
+          // (see `WordSuggestionsPopup.ensureDictionaryLoaded`).
+          wordSuggestions = new WordSuggestionsPopup(editor);
 
           // Keyboard shortcuts for save/open (Phase P6-01: data-driven
           // dispatch over `keybindings.matches()` instead of one
@@ -4357,6 +4710,76 @@
           const mobileInput = document.getElementById("mobile-input");
 
           canvas.addEventListener("keydown", (e) => {
+            // Word suggestion popup (Phase P9): while it's open, these
+            // keys drive the popup instead of their usual text-editing
+            // behavior. Checked *before* everything else below, fully
+            // intercepted (no fall-through) - see the precedence note
+            // in WORD_SUGGESTIONS_PLAN.md §9.
+            if (wordSuggestions && wordSuggestions.isOpen()) {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                wordSuggestions.dismiss();
+                return;
+              }
+              if (e.key === "ArrowDown") {
+                e.preventDefault();
+                wordSuggestions.next();
+                return;
+              }
+              if (e.key === "ArrowUp") {
+                e.preventDefault();
+                wordSuggestions.prev();
+                return;
+              }
+              // In vertical mode the popup lays suggestions out as a
+              // horizontal row of numbered columns (see `render()`) -
+              // Left/Right is the natural navigation axis there, matching
+              // Mongolian's own left-to-right column order (so Right
+              // moves to the *next* suggestion, same direction column
+              // 2 sits relative to column 1). Deliberately *not*
+              // intercepted in horizontal mode, where the popup is
+              // still the original single-column stacked list and
+              // Left/Right keeps its normal meaning (move the cursor
+              // within the word, which dismisses the popup like any
+              // other pure-motion key - see the `handle_key_down`
+              // return-value note below).
+              if (wordSuggestions.isVerticalMode()) {
+                if (e.key === "ArrowRight") {
+                  e.preventDefault();
+                  wordSuggestions.next();
+                  return;
+                }
+                if (e.key === "ArrowLeft") {
+                  e.preventDefault();
+                  wordSuggestions.prev();
+                  return;
+                }
+              }
+              if (e.key === "Tab" || e.key === "Enter") {
+                e.preventDefault();
+                wordSuggestions.accept();
+                return;
+              }
+              // Numbered columns (vertical mode) / numbered rows - "1"
+              // accepts the first suggestion, "2" the second, etc.,
+              // matching the number badge each column shows. Only
+              // intercepted when it's actually a valid selection for
+              // however many suggestions are showing right now -
+              // pressing e.g. "9" with only 3 suggestions falls through
+              // to ordinary typing instead (inserts "9" as literal
+              // text, same as if the popup weren't open).
+              if (/^[1-9]$/.test(e.key)) {
+                if (wordSuggestions.acceptByNumber(Number(e.key))) {
+                  e.preventDefault();
+                  return;
+                }
+              }
+              // Any other key (typing more, Arrow Left/Right in
+              // horizontal mode, etc.) falls through to normal handling
+              // below, which ends with a refresh() call that updates or
+              // hides the popup based on the new cursor/word state.
+            }
+
             try {
               // Handle Ctrl+C (Copy) - intercept before Rust handles it
               if ((e.ctrlKey || e.metaKey) && e.key === "c") {
@@ -4392,6 +4815,7 @@
                       .writeText(selectedText)
                       .then(() => {
                         editor.delete_selection();
+                        if (wordSuggestions) wordSuggestions.refresh();
                         updateStatus(
                           "Cut: " +
                             selectedText.substring(0, 20) +
@@ -4416,6 +4840,7 @@
                     .then((text) => {
                       if (text) {
                         editor.insert_text(text);
+                        if (wordSuggestions) wordSuggestions.refresh();
                         updateStatus(
                           "Pasted: " +
                             text.substring(0, 20) +
@@ -4461,6 +4886,7 @@
                   } else {
                     editor.insert_text(convertedChar);
                   }
+                  if (wordSuggestions) wordSuggestions.refresh();
                   return;
                 }
               }
@@ -4468,7 +4894,22 @@
               // For non-mapped keys, clear the buffer
               bufferedFormatControl = null;
 
-              editor.handle_key_down(e);
+              const textChanged = editor.handle_key_down(e);
+              if (wordSuggestions) {
+                // Per the trigger table in WORD_SUGGESTIONS_PLAN.md §7:
+                // only actually-typing keystrokes should refresh the
+                // popup. Pure cursor movement (arrow keys, Home/End,
+                // PageUp/Down) returns `false` here - refreshing on
+                // those would show suggestions merely for navigating
+                // through existing text, which isn't what the user is
+                // asking for. The word context changed either way, so
+                // dismiss rather than leaving a stale popup open.
+                if (textChanged) {
+                  wordSuggestions.refresh();
+                } else {
+                  wordSuggestions.dismiss();
+                }
+              }
             } catch (err) {
               console.error("Key down error:", err);
             }
@@ -4510,6 +4951,9 @@
 
           // Unified pointer down handler
           function handlePointerDown(e) {
+            // A click/tap relocates the cursor away from whatever word
+            // suggestions were computed for.
+            if (wordSuggestions) wordSuggestions.dismiss();
             try {
               // For touch events, let Rust handle everything
               if (e.type === "touchstart") {
@@ -4810,6 +5254,7 @@
               const versionText = await response.text();
               if (editor) {
                 editor.set_text(versionText);
+                if (wordSuggestions) wordSuggestions.dismiss();
                 updateStatus("Loaded version information");
                 // Focus canvas after loading
                 if (isMobileDevice) {
@@ -4836,6 +5281,7 @@
               }
               editor.set_text("");
               if (tabManager) tabManager.markActiveClean();
+              if (wordSuggestions) wordSuggestions.dismiss();
               updateStatus("Text cleared");
               // Focus canvas after action
               if (isMobileDevice) {

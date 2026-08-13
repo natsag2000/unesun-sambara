@@ -208,6 +208,35 @@ Items inherited from the original `IMPLEMENTATION_SUMMARY.md` deferred list, plu
 
 ---
 
+## Phase P9 — Word suggestion popup
+
+Identified by the user as **the most important remaining feature** for
+this editor. Large and technical enough to warrant its own document
+rather than a few bullet points here — see
+[`prompt/WORD_SUGGESTIONS_PLAN.md`](WORD_SUGGESTIONS_PLAN.md) for the
+full design (grounded in the actual dictionary/cursor/word-boundary
+code, not written from scratch): a live popup, anchored next to the
+text cursor, offering completions/corrections from the existing
+Cyrillic↔Mongolian dictionary as the user types in either script,
+accepted via keyboard or mouse. Additive — does not replace the
+existing Transliteration modal (`Ctrl+T`).
+
+- **P9 (WS-01..WS-06)** `[x]` **XL** (sum of parts — see the plan doc's
+  §12 for the actual per-item S/M/L breakdown) — Done. Desktop MVP
+  shipped: word-boundary/script classification, dictionary prefix
+  indexing + ranking, the popup's Rust API, the JS popup class and
+  trigger wiring, a settings toggle, and Playwright coverage. Four real
+  bugs surfaced through user testing beyond the plan's original scope —
+  vertical-mode text orientation, popup position tracking (three
+  separate sub-issues), a motion-vs-typing trigger bug, and a
+  user-requested numbered multi-column layout redesign for vertical
+  mode — all fixed; see the impl log for details. `WS-07`
+  (phrase-aware suggestions) and `WS-08` (mobile/touch positioning)
+  remain deferred, exactly as scoped in the plan's §12.
+  - Impl log: [`DOC/IMPL/WORD_SUGGESTIONS_IMPL.md`](../DOC/IMPL/WORD_SUGGESTIONS_IMPL.md) · Patch: `patch/word-suggestions.patch`.
+
+---
+
 ## Suggested order of execution
 
 1. ~~**Phase P0** foundation cleanup~~ — done (commit `0e89edb`).
@@ -217,11 +246,13 @@ Items inherited from the original `IMPLEMENTATION_SUMMARY.md` deferred list, plu
 5. ~~**P7-04 Playwright smoke test**~~ — done out of order, at the user's explicit request (see `DOC/IMPL/PHASE_7_04_IMPL.md`), ahead of P8-03 so tabs could be built with real browser verification.
 6. ~~**P8-03 multiple documents / tab strip**~~ — done, out of the original suggested order at the user's explicit request (see `DOC/IMPL/PHASE_8_03_IMPL.md`).
 7. ~~**Phase P6 keybindings**, **P3-03 Latin-map editor**, remainder of **Phase P7** performance and tests~~ — done (see `DOC/IMPL/PHASE_6_IMPL.md`).
+8. ~~**Phase P9 word suggestion popup** (`WS-01`..`WS-06`)~~ — done, at the user's explicit request as "the most important remaining feature" (see `DOC/IMPL/WORD_SUGGESTIONS_IMPL.md`). `WS-07`/`WS-08` remain deferred per the plan's own scoping.
 
-All items from the original "suggested order" list are now done. Remaining
-backlog (none block each other): Phase P5 (`P5-01`, `P5-03`, `P5-04`),
-`P3-01`/`P3-02`/`P3-04`, and Phase P8 stretch items (`P8-01`, `P8-02`).
-**← next: whichever of these the user wants to prioritize.**
+All items from the original "suggested order" list, plus Phase P9, are
+now done. Remaining backlog (none block each other): Phase P5
+(`P5-01`, `P5-03`, `P5-04`), `P3-01`/`P3-02`/`P3-04`, Phase P8 stretch
+items (`P8-01`, `P8-02`), and Phase P9's deferred `WS-07`/`WS-08`.
+**← next.**
 
 ## Open questions (resolutions recorded)
 
@@ -235,6 +266,8 @@ backlog (none block each other): Phase P5 (`P5-01`, `P5-03`, `P5-04`),
 8. **P8-03: does Open File create a new tab or replace the active one?** — **Resolved (new tab).** Matches how most tabbed editors behave; also makes the P5-02 "confirm before Open discards work" guard unnecessary for Open specifically (nothing is discarded any more), though it stays for Clear Document.
 9. **P8-03: do tabs persist across a reload?** — **Resolved (yes, all open tabs).** This supersedes the P2-05 single-document auto-save draft + recovery banner: instead of prompting "restore an old draft?", every tab's content is continuously persisted and the whole tab strip reappears silently on reload. `tests/e2e/smoke.spec.js` (P7-04) targets the pre-P8-03 banner behavior and needs updating once this lands - tracked explicitly, not forgotten.
 10. **P6/P3-03/P7 scope: all 7 items together, or split?** — **Resolved (all together).** Same pattern as the P2 and P4 batches. One sub-decision recorded: P6-01's configurable keybindings only cover 16 app-level actions, deliberately excluding undo/redo/copy/cut/paste/typing (which stay hardcoded in Rust's `handle_key_down`).
+11. **Phase P9 (word suggestions): plan first, or build directly?** — **Resolved (plan first).** The user explicitly asked for "a separate implementation plan," not code, given the feature's size and priority — `prompt/WORD_SUGGESTIONS_PLAN.md` is the result. Three scope questions were resolved while writing it (trigger sources = both Cyrillic and Mongolian-via-Latin-mode; accept via keyboard *and* mouse; additive, doesn't replace the Transliteration modal) - recorded in that document's §2, not duplicated here. That plan's own §11 lists seven *further* open questions still needing resolution before implementation starts.
+12. **Phase P9 implementation: full desktop MVP scope, plus mid-implementation redesigns found through testing.** — **Resolved.** WS-01 through WS-06 done together in one session (WS-07 phrase-suggestions and WS-08 mobile/touch explicitly deferred, matching the plan's own markers). Four additional decisions were made *during* implementation, driven by real user testing rather than anticipated in the plan: (a) dictionary loading must be synchronous from Rust (`load_dictionary_text`), not `async` like the Transliteration modal's loader, to avoid a wasm-bindgen re-entrancy panic when typing continues during the fetch; (b) the popup must render each Mongolian suggestion vertically (`text-orientation: mixed`, not `sideways`) when the editor itself is in vertical mode; (c) `handle_key_down` now reports whether a keystroke changed text so pure cursor motion dismisses the popup instead of refreshing it, per the plan's own §7 trigger table that the first pass had missed; (d) the user requested (after seeing the working feature) that vertical mode show each suggestion in its own numbered column rather than one stacked column, selectable by clicking or pressing the matching number key — implemented as vertical-mode-only, horizontal mode unchanged. See `DOC/IMPL/WORD_SUGGESTIONS_IMPL.md` for the full bug-by-bug account.
 
 ## Resuming after a context loss
 
