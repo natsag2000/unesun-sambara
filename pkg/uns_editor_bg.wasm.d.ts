@@ -2,15 +2,18 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_wasmeditor_free: (a: number, b: number) => void;
+export const wasmeditor_accept_word_suggestion: (a: number, b: number, c: number) => [number, number];
 export const wasmeditor_can_redo: (a: number) => number;
 export const wasmeditor_can_undo: (a: number) => number;
 export const wasmeditor_delete_selection: (a: number) => void;
+export const wasmeditor_dismiss_word_suggestions: (a: number) => void;
 export const wasmeditor_get_cursor_position: (a: number) => any;
 export const wasmeditor_get_default_settings_json: (a: number) => [number, number, number, number];
 export const wasmeditor_get_selected_text: (a: number) => any;
 export const wasmeditor_get_settings_json: (a: number) => [number, number, number, number];
 export const wasmeditor_get_text: (a: number) => [number, number];
-export const wasmeditor_handle_key_down: (a: number, b: any) => [number, number];
+export const wasmeditor_get_word_suggestions_json: (a: number) => [number, number, number];
+export const wasmeditor_handle_key_down: (a: number, b: any) => [number, number, number];
 export const wasmeditor_handle_key_up: (a: number, b: any) => void;
 export const wasmeditor_handle_mouse_down: (a: number, b: any) => [number, number];
 export const wasmeditor_handle_mouse_move: (a: number, b: any) => [number, number];
@@ -21,10 +24,15 @@ export const wasmeditor_handle_touch_start: (a: number, b: any) => [number, numb
 export const wasmeditor_handle_wheel: (a: number, b: any) => [number, number];
 export const wasmeditor_insert_text: (a: number, b: number, c: number) => void;
 export const wasmeditor_list_commands: (a: number) => [number, number, number];
+export const wasmeditor_list_keybindings: (a: number) => [number, number, number, number];
 export const wasmeditor_list_themes: (a: number) => [number, number, number, number];
+export const wasmeditor_load_dictionary_text: (a: number, b: number, c: number) => void;
+export const wasmeditor_measure_suggestions_popup: (a: number) => [number, number, number];
+export const wasmeditor_needs_render: (a: number, b: number) => number;
 export const wasmeditor_new: (a: number, b: number) => any;
 export const wasmeditor_redo: (a: number) => number;
 export const wasmeditor_render: (a: number, b: number) => [number, number];
+export const wasmeditor_render_suggestions_popup: (a: number, b: number, c: number, d: number, e: number) => [number, number];
 export const wasmeditor_reset_to_defaults: (a: number) => [number, number, number, number];
 export const wasmeditor_run_command: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
 export const wasmeditor_set_cursor_position: (a: number, b: number, c: number) => void;

@@ -19,6 +19,28 @@ export class WasmEditor {
         wasm.__wbg_wasmeditor_free(ptr, 0);
     }
     /**
+     * Accepts a suggestion, replacing the word it was computed for
+     * with `text`. Re-resolves nothing beyond what
+     * `get_word_suggestions_json` already stored (`word_start`/
+     * `word_end`) - if the buffer changed since then in a way that
+     * invalidates those positions, cosmic-text's own range handling
+     * degrades gracefully rather than panicking, and the popup is
+     * always dismissed by the JS layer's own trigger logic before the
+     * buffer could change again out from under it (see
+     * `WORD_SUGGESTIONS_PLAN.md` §7's trigger table). One atomic undo
+     * step, same convention as every other programmatic multi-char
+     * edit in this codebase (P2-01, P2-03).
+     * @param {string} text
+     */
+    accept_word_suggestion(text) {
+        const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmeditor_accept_word_suggestion(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * @returns {boolean}
      */
     can_redo() {
@@ -34,6 +56,15 @@ export class WasmEditor {
     }
     delete_selection() {
         wasm.wasmeditor_delete_selection(this.__wbg_ptr);
+    }
+    /**
+     * Clears the popup's state without changing the buffer - called on
+     * Escape, on cursor-moving keys/clicks, and on document-changing
+     * actions (tab switch, clear, open) per the trigger table in
+     * `WORD_SUGGESTIONS_PLAN.md` §7.
+     */
+    dismiss_word_suggestions() {
+        wasm.wasmeditor_dismiss_word_suggestions(this.__wbg_ptr);
     }
     /**
      * @returns {any}
@@ -109,13 +140,56 @@ export class WasmEditor {
         }
     }
     /**
+     * Recomputes the word suggestion popup's state for the current
+     * cursor position. Returns
+     * `{ hasSuggestions, suggestions: string[], anchorX, anchorY, lineAdvance }` -
+     * `anchorX`/`anchorY` are the cursor's position in the same
+     * canvas-pixel space `render()` draws into (`buffer_pixel -
+     * scroll_offset + content_padding`, cosmic-text's own
+     * `cursor_position()` composing directly with the same transform
+     * used everywhere else in this file). JS converts that to CSS
+     * position via `devicePixelRatio` and the canvas's
+     * `getBoundingClientRect()` - the exact inverse of what
+     * `handle_mouse_down` et al. already do the other direction.
+     * `lineAdvance` is the line/column spacing at the cursor, also in
+     * canvas-pixel space - JS uses it to offset the popup a full
+     * line/column clear of the cursor rather than guessing a fixed
+     * pixel gap (which in vertical mode landed inside the *next*
+     * column's territory instead of a clean gap beside the current
+     * one).
+     *
+     * Returns `hasSuggestions: false` (never an error) if the feature
+     * is disabled in settings, the dictionary hasn't loaded yet, or
+     * the cursor isn't inside/adjacent to a word at least
+     * `MIN_SUGGESTION_WORD_LEN` characters long - all "nothing to show
+     * right now," not failure conditions.
+     * @returns {any}
+     */
+    get_word_suggestions_json() {
+        const ret = wasm.wasmeditor_get_word_suggestions_json(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * Returns whether this keystroke actually changed the buffer text
+     * (as opposed to just moving the cursor/selection, or doing
+     * nothing). JS uses this to decide whether to refresh the word
+     * suggestion popup or dismiss it - per the trigger table in
+     * `WORD_SUGGESTIONS_PLAN.md` §7, pure cursor movement (arrow keys,
+     * Home/End, PageUp/Down) should dismiss the popup (the word
+     * context changed), not refresh it, since the user isn't actively
+     * typing.
      * @param {KeyboardEvent} event
+     * @returns {boolean}
      */
     handle_key_down(event) {
         const ret = wasm.wasmeditor_handle_key_down(this.__wbg_ptr, event);
-        if (ret[1]) {
-            throw takeFromExternrefTable0(ret[0]);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
         }
+        return ret[0] !== 0;
     }
     /**
      * @param {KeyboardEvent} event
@@ -208,6 +282,35 @@ export class WasmEditor {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
+     * Returns the default app-level keybindings (P6-01) as a JSON
+     * array of `{ id, label, default }`. Does not mutate editor
+     * state - the JS `KeybindingManager` layers localStorage overrides
+     * on top and owns the actual `KeyboardEvent` matching; Rust is
+     * only the source of truth for what ships out of the box. See
+     * `src/config/keybindings.rs` for the full scope rationale (only
+     * app-level shortcuts are covered, not low-level text-editing
+     * keys like undo/redo).
+     * @returns {string}
+     */
+    list_keybindings() {
+        let deferred2_0;
+        let deferred2_1;
+        try {
+            const ret = wasm.wasmeditor_list_keybindings(this.__wbg_ptr);
+            var ptr1 = ret[0];
+            var len1 = ret[1];
+            if (ret[3]) {
+                ptr1 = 0; len1 = 0;
+                throw takeFromExternrefTable0(ret[2]);
+            }
+            deferred2_0 = ptr1;
+            deferred2_1 = len1;
+            return getStringFromWasm0(ptr1, len1);
+        } finally {
+            wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+        }
+    }
+    /**
      * Returns the built-in theme presets (P4-01) as a JSON array of
      * `{ id, name, appearance: { text_color, background_color, ... } }`.
      * Does not mutate editor state - the JS Color tab applies a theme by
@@ -235,6 +338,88 @@ export class WasmEditor {
         }
     }
     /**
+     * Synchronous alternative to `translit_load_dictionary` above, for
+     * the word suggestion popup (Phase P9). Takes already-fetched TSV
+     * text and parses it in one atomic call - no `.await` inside Rust,
+     * so no cross-await borrow of `self` for anything else running on
+     * the same JS event loop to collide with.
+     *
+     * This distinction matters in practice, not just in theory: an
+     * async Rust method holds its `&mut self` borrow for the entire
+     * span between `.await` points, for as long as wasm-bindgen keeps
+     * that generated JS `Promise` unresolved. `translit_load_dictionary`
+     * gets away with that because the Transliteration modal traps
+     * keyboard focus on its own input while loading - the canvas's own
+     * `keydown`/`keyup`/mouse listeners and the `render()` loop can't
+     * fire during that window. The word suggestion popup's dictionary
+     * load is triggered *by* canvas typing, the one context where that
+     * assumption doesn't hold - a `keyup` for the very keystroke that
+     * triggered the load can (and did, during manual testing) fire
+     * while the load's `await` is still pending, tripping
+     * wasm-bindgen's "recursive use of an object" panic. Fetching the
+     * text in JS (a plain `fetch()`, no WASM object involved) and
+     * handing the already-resolved string to this synchronous method
+     * avoids the hazard entirely - see `WordSuggestionsPopup.ensureDictionaryLoaded`
+     * in `index.html`.
+     * @param {string} text
+     */
+    load_dictionary_text(text) {
+        const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.wasmeditor_load_dictionary_text(this.__wbg_ptr, ptr0, len0);
+    }
+    /**
+     * WS-09: measures the popup's current suggestion list (whatever
+     * `get_word_suggestions_json` last stored in
+     * `self.state.suggestions.suggestions`) using real `cosmic-text`
+     * shaping - the same shaping/rasterization pipeline the main
+     * document canvas uses, so the popup's Mongolian glyphs are
+     * visually identical to the document regardless of which browser
+     * this runs in, rather than depending on the browser's own
+     * (inconsistent, sometimes absent) support for shaping Mongolian
+     * text under CSS `writing-mode`/`text-orientation`.
+     *
+     * Returns `{ width, height, itemBounds: [{x,y,w,h}, ...] }` in the
+     * same device-pixel space as `get_word_suggestions_json`'s
+     * `anchorX`/`anchorY`/`lineAdvance`. JS resizes the popup's
+     * `<canvas>` to `width`/`height` (after its own DPR conversion)
+     * and uses `itemBounds` for click/hover hit-testing - `bounds` in
+     * each entry is stretched to the popup's full cross-axis extent
+     * (see `suggestion_popup_layout`'s doc comments), so click/hover
+     * targets are comfortably sized, not just the glyphs' own tight
+     * box.
+     *
+     * Deliberately does *not* draw anything - `render_suggestions_popup`
+     * (called right after, once JS has resized the canvas to this
+     * method's reported size) consumes the layout this call caches on
+     * `self.suggestion_popup_cache` rather than recomputing it, so the
+     * two calls can never disagree about where anything is.
+     * @returns {any}
+     */
+    measure_suggestions_popup() {
+        const ret = wasm.wasmeditor_measure_suggestions_popup(this.__wbg_ptr);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
+     * True if the JS `animate()` loop should actually call `render()`
+     * this frame (P7-01). Two reasons to render: something the user
+     * did (or a programmatic change) marked the frame dirty, or the
+     * cursor's 500ms blink interval has elapsed - the latter check
+     * mirrors the one `render()` itself does internally, so the
+     * cursor keeps blinking at its usual rate even while otherwise
+     * idle. Cheap to call every RAF tick: no pixel work, just a bool
+     * and a float comparison.
+     * @param {number} timestamp
+     * @returns {boolean}
+     */
+    needs_render(timestamp) {
+        const ret = wasm.wasmeditor_needs_render(this.__wbg_ptr, timestamp);
+        return ret !== 0;
+    }
+    /**
      * @param {string} canvas_id
      * @returns {Promise<WasmEditor>}
      */
@@ -258,6 +443,32 @@ export class WasmEditor {
      */
     render(timestamp) {
         const ret = wasm.wasmeditor_render(this.__wbg_ptr, timestamp);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
+     * WS-09: draws the popup's current suggestion list into a
+     * JS-supplied `<canvas>` (already resized by JS to whatever
+     * `measure_suggestions_popup` most recently reported), reusing
+     * that call's cached layout rather than recomputing it. `-1` for
+     * `selected_index`/`hover_index` means "none" (wasm-bindgen has no
+     * convenient `Option<usize>` across the JS boundary).
+     *
+     * Bails out (does nothing, not an error) if there's no cached
+     * layout, or if the cached layout's item count no longer matches
+     * the current suggestion list - the latter should never actually
+     * happen since JS always calls `measure_suggestions_popup`
+     * immediately before this, but a stale/mismatched draw would be a
+     * worse failure mode than silently skipping a frame.
+     * @param {string} canvas_id
+     * @param {number} selected_index
+     * @param {number} hover_index
+     */
+    render_suggestions_popup(canvas_id, selected_index, hover_index) {
+        const ptr0 = passStringToWasm0(canvas_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmeditor_render_suggestions_popup(this.__wbg_ptr, ptr0, len0, selected_index, hover_index);
         if (ret[1]) {
             throw takeFromExternrefTable0(ret[0]);
         }
@@ -612,6 +823,9 @@ function __wbg_get_imports() {
             const ret = arg0.length;
             return ret;
         },
+        __wbg_log_6b5ca2e6124b2808: function(arg0) {
+            console.log(arg0);
+        },
         __wbg_metaKey_67113fb40365d736: function(arg0) {
             const ret = arg0.metaKey;
             return ret;
@@ -698,8 +912,8 @@ function __wbg_get_imports() {
             const ret = Reflect.set(arg0, arg1, arg2);
             return ret;
         }, arguments); },
-        __wbg_set_fillStyle_4c9682826c3e231a: function(arg0, arg1) {
-            arg0.fillStyle = arg1;
+        __wbg_set_fillStyle_783d3f7489475421: function(arg0, arg1, arg2) {
+            arg0.fillStyle = getStringFromWasm0(arg1, arg2);
         },
         __wbg_set_font_575685c8f7e56957: function(arg0, arg1, arg2) {
             arg0.font = getStringFromWasm0(arg1, arg2);
@@ -784,7 +998,7 @@ function __wbg_get_imports() {
             return ret;
         },
         __wbindgen_cast_0000000000000001: function(arg0, arg1) {
-            // Cast intrinsic for `Closure(Closure { dtor_idx: 292, function: Function { arguments: [Externref], shim_idx: 293, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
+            // Cast intrinsic for `Closure(Closure { dtor_idx: 294, function: Function { arguments: [Externref], shim_idx: 295, ret: Unit, inner_ret: Some(Unit) }, mutable: true }) -> Externref`.
             const ret = makeMutClosure(arg0, arg1, wasm.wasm_bindgen__closure__destroy__h9fe21e8b023d8040, wasm_bindgen__convert__closures_____invoke__h5ce99ad185dd8d06);
             return ret;
         },

@@ -5,9 +5,30 @@ export class WasmEditor {
     private constructor();
     free(): void;
     [Symbol.dispose](): void;
+    /**
+     * Accepts a suggestion, replacing the word it was computed for
+     * with `text`. Re-resolves nothing beyond what
+     * `get_word_suggestions_json` already stored (`word_start`/
+     * `word_end`) - if the buffer changed since then in a way that
+     * invalidates those positions, cosmic-text's own range handling
+     * degrades gracefully rather than panicking, and the popup is
+     * always dismissed by the JS layer's own trigger logic before the
+     * buffer could change again out from under it (see
+     * `WORD_SUGGESTIONS_PLAN.md` §7's trigger table). One atomic undo
+     * step, same convention as every other programmatic multi-char
+     * edit in this codebase (P2-01, P2-03).
+     */
+    accept_word_suggestion(text: string): void;
     can_redo(): boolean;
     can_undo(): boolean;
     delete_selection(): void;
+    /**
+     * Clears the popup's state without changing the buffer - called on
+     * Escape, on cursor-moving keys/clicks, and on document-changing
+     * actions (tab switch, clear, open) per the trigger table in
+     * `WORD_SUGGESTIONS_PLAN.md` §7.
+     */
+    dismiss_word_suggestions(): void;
     get_cursor_position(): any;
     /**
      * Returns the built-in default settings as JSON without mutating the
@@ -17,7 +38,43 @@ export class WasmEditor {
     get_selected_text(): any;
     get_settings_json(): string;
     get_text(): string;
-    handle_key_down(event: KeyboardEvent): void;
+    /**
+     * Recomputes the word suggestion popup's state for the current
+     * cursor position. Returns
+     * `{ hasSuggestions, suggestions: string[], anchorX, anchorY, lineAdvance }` -
+     * `anchorX`/`anchorY` are the cursor's position in the same
+     * canvas-pixel space `render()` draws into (`buffer_pixel -
+     * scroll_offset + content_padding`, cosmic-text's own
+     * `cursor_position()` composing directly with the same transform
+     * used everywhere else in this file). JS converts that to CSS
+     * position via `devicePixelRatio` and the canvas's
+     * `getBoundingClientRect()` - the exact inverse of what
+     * `handle_mouse_down` et al. already do the other direction.
+     * `lineAdvance` is the line/column spacing at the cursor, also in
+     * canvas-pixel space - JS uses it to offset the popup a full
+     * line/column clear of the cursor rather than guessing a fixed
+     * pixel gap (which in vertical mode landed inside the *next*
+     * column's territory instead of a clean gap beside the current
+     * one).
+     *
+     * Returns `hasSuggestions: false` (never an error) if the feature
+     * is disabled in settings, the dictionary hasn't loaded yet, or
+     * the cursor isn't inside/adjacent to a word at least
+     * `MIN_SUGGESTION_WORD_LEN` characters long - all "nothing to show
+     * right now," not failure conditions.
+     */
+    get_word_suggestions_json(): any;
+    /**
+     * Returns whether this keystroke actually changed the buffer text
+     * (as opposed to just moving the cursor/selection, or doing
+     * nothing). JS uses this to decide whether to refresh the word
+     * suggestion popup or dismiss it - per the trigger table in
+     * `WORD_SUGGESTIONS_PLAN.md` §7, pure cursor movement (arrow keys,
+     * Home/End, PageUp/Down) should dismiss the popup (the word
+     * context changed), not refresh it, since the user isn't actively
+     * typing.
+     */
+    handle_key_down(event: KeyboardEvent): boolean;
     handle_key_up(event: KeyboardEvent): void;
     handle_mouse_down(event: MouseEvent): void;
     handle_mouse_move(event: MouseEvent): void;
@@ -34,6 +91,17 @@ export class WasmEditor {
      */
     list_commands(): any;
     /**
+     * Returns the default app-level keybindings (P6-01) as a JSON
+     * array of `{ id, label, default }`. Does not mutate editor
+     * state - the JS `KeybindingManager` layers localStorage overrides
+     * on top and owns the actual `KeyboardEvent` matching; Rust is
+     * only the source of truth for what ships out of the box. See
+     * `src/config/keybindings.rs` for the full scope rationale (only
+     * app-level shortcuts are covered, not low-level text-editing
+     * keys like undo/redo).
+     */
+    list_keybindings(): string;
+    /**
      * Returns the built-in theme presets (P4-01) as a JSON array of
      * `{ id, name, appearance: { text_color, background_color, ... } }`.
      * Does not mutate editor state - the JS Color tab applies a theme by
@@ -42,6 +110,71 @@ export class WasmEditor {
      * used for every other settings field (see P0-02/P0-03).
      */
     list_themes(): string;
+    /**
+     * Synchronous alternative to `translit_load_dictionary` above, for
+     * the word suggestion popup (Phase P9). Takes already-fetched TSV
+     * text and parses it in one atomic call - no `.await` inside Rust,
+     * so no cross-await borrow of `self` for anything else running on
+     * the same JS event loop to collide with.
+     *
+     * This distinction matters in practice, not just in theory: an
+     * async Rust method holds its `&mut self` borrow for the entire
+     * span between `.await` points, for as long as wasm-bindgen keeps
+     * that generated JS `Promise` unresolved. `translit_load_dictionary`
+     * gets away with that because the Transliteration modal traps
+     * keyboard focus on its own input while loading - the canvas's own
+     * `keydown`/`keyup`/mouse listeners and the `render()` loop can't
+     * fire during that window. The word suggestion popup's dictionary
+     * load is triggered *by* canvas typing, the one context where that
+     * assumption doesn't hold - a `keyup` for the very keystroke that
+     * triggered the load can (and did, during manual testing) fire
+     * while the load's `await` is still pending, tripping
+     * wasm-bindgen's "recursive use of an object" panic. Fetching the
+     * text in JS (a plain `fetch()`, no WASM object involved) and
+     * handing the already-resolved string to this synchronous method
+     * avoids the hazard entirely - see `WordSuggestionsPopup.ensureDictionaryLoaded`
+     * in `index.html`.
+     */
+    load_dictionary_text(text: string): void;
+    /**
+     * WS-09: measures the popup's current suggestion list (whatever
+     * `get_word_suggestions_json` last stored in
+     * `self.state.suggestions.suggestions`) using real `cosmic-text`
+     * shaping - the same shaping/rasterization pipeline the main
+     * document canvas uses, so the popup's Mongolian glyphs are
+     * visually identical to the document regardless of which browser
+     * this runs in, rather than depending on the browser's own
+     * (inconsistent, sometimes absent) support for shaping Mongolian
+     * text under CSS `writing-mode`/`text-orientation`.
+     *
+     * Returns `{ width, height, itemBounds: [{x,y,w,h}, ...] }` in the
+     * same device-pixel space as `get_word_suggestions_json`'s
+     * `anchorX`/`anchorY`/`lineAdvance`. JS resizes the popup's
+     * `<canvas>` to `width`/`height` (after its own DPR conversion)
+     * and uses `itemBounds` for click/hover hit-testing - `bounds` in
+     * each entry is stretched to the popup's full cross-axis extent
+     * (see `suggestion_popup_layout`'s doc comments), so click/hover
+     * targets are comfortably sized, not just the glyphs' own tight
+     * box.
+     *
+     * Deliberately does *not* draw anything - `render_suggestions_popup`
+     * (called right after, once JS has resized the canvas to this
+     * method's reported size) consumes the layout this call caches on
+     * `self.suggestion_popup_cache` rather than recomputing it, so the
+     * two calls can never disagree about where anything is.
+     */
+    measure_suggestions_popup(): any;
+    /**
+     * True if the JS `animate()` loop should actually call `render()`
+     * this frame (P7-01). Two reasons to render: something the user
+     * did (or a programmatic change) marked the frame dirty, or the
+     * cursor's 500ms blink interval has elapsed - the latter check
+     * mirrors the one `render()` itself does internally, so the
+     * cursor keeps blinking at its usual rate even while otherwise
+     * idle. Cheap to call every RAF tick: no pixel work, just a bool
+     * and a float comparison.
+     */
+    needs_render(timestamp: number): boolean;
     static new(canvas_id: string): Promise<WasmEditor>;
     /**
      * Redo the most recently undone change. Returns `true` if something
@@ -49,6 +182,22 @@ export class WasmEditor {
      */
     redo(): boolean;
     render(timestamp: number): void;
+    /**
+     * WS-09: draws the popup's current suggestion list into a
+     * JS-supplied `<canvas>` (already resized by JS to whatever
+     * `measure_suggestions_popup` most recently reported), reusing
+     * that call's cached layout rather than recomputing it. `-1` for
+     * `selected_index`/`hover_index` means "none" (wasm-bindgen has no
+     * convenient `Option<usize>` across the JS boundary).
+     *
+     * Bails out (does nothing, not an error) if there's no cached
+     * layout, or if the cached layout's item count no longer matches
+     * the current suggestion list - the latter should never actually
+     * happen since JS always calls `measure_suggestions_popup`
+     * immediately before this, but a stale/mismatched draw would be a
+     * worse failure mode than silently skipping a frame.
+     */
+    render_suggestions_popup(canvas_id: string, selected_index: number, hover_index: number): void;
     /**
      * Resets settings to the built-in defaults, applies them, and returns the
      * resulting JSON so the JS layer can update its UI and localStorage
@@ -118,15 +267,18 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_wasmeditor_free: (a: number, b: number) => void;
+    readonly wasmeditor_accept_word_suggestion: (a: number, b: number, c: number) => [number, number];
     readonly wasmeditor_can_redo: (a: number) => number;
     readonly wasmeditor_can_undo: (a: number) => number;
     readonly wasmeditor_delete_selection: (a: number) => void;
+    readonly wasmeditor_dismiss_word_suggestions: (a: number) => void;
     readonly wasmeditor_get_cursor_position: (a: number) => any;
     readonly wasmeditor_get_default_settings_json: (a: number) => [number, number, number, number];
     readonly wasmeditor_get_selected_text: (a: number) => any;
     readonly wasmeditor_get_settings_json: (a: number) => [number, number, number, number];
     readonly wasmeditor_get_text: (a: number) => [number, number];
-    readonly wasmeditor_handle_key_down: (a: number, b: any) => [number, number];
+    readonly wasmeditor_get_word_suggestions_json: (a: number) => [number, number, number];
+    readonly wasmeditor_handle_key_down: (a: number, b: any) => [number, number, number];
     readonly wasmeditor_handle_key_up: (a: number, b: any) => void;
     readonly wasmeditor_handle_mouse_down: (a: number, b: any) => [number, number];
     readonly wasmeditor_handle_mouse_move: (a: number, b: any) => [number, number];
@@ -137,10 +289,15 @@ export interface InitOutput {
     readonly wasmeditor_handle_wheel: (a: number, b: any) => [number, number];
     readonly wasmeditor_insert_text: (a: number, b: number, c: number) => void;
     readonly wasmeditor_list_commands: (a: number) => [number, number, number];
+    readonly wasmeditor_list_keybindings: (a: number) => [number, number, number, number];
     readonly wasmeditor_list_themes: (a: number) => [number, number, number, number];
+    readonly wasmeditor_load_dictionary_text: (a: number, b: number, c: number) => void;
+    readonly wasmeditor_measure_suggestions_popup: (a: number) => [number, number, number];
+    readonly wasmeditor_needs_render: (a: number, b: number) => number;
     readonly wasmeditor_new: (a: number, b: number) => any;
     readonly wasmeditor_redo: (a: number) => number;
     readonly wasmeditor_render: (a: number, b: number) => [number, number];
+    readonly wasmeditor_render_suggestions_popup: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly wasmeditor_reset_to_defaults: (a: number) => [number, number, number, number];
     readonly wasmeditor_run_command: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly wasmeditor_set_cursor_position: (a: number, b: number, c: number) => void;
