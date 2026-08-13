@@ -5,7 +5,11 @@ edition = "2021"
 publish = false
 
 [package.metadata.wasm-pack.profile.release]
-wasm-opt = false
+# P7-02: wasm-pack downloads its own copy of binaryen's wasm-opt and
+# runs it automatically once this isn't `false`. `-Oz` matches the
+# `opt-level = "z"` (optimize for size) already set below, run once
+# more at the WASM binary level after rustc/LLVM's own optimization.
+wasm-opt = ["-Oz"]
 
 [dependencies]
 cosmic-text = { path = "../cosmic-text", features = ["swash"] }

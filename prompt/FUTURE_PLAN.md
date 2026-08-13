@@ -120,8 +120,8 @@ Extend the already-deep Mongolian support.
 - **P3-02** `[ ]` **S** — Verify and document orientation persistence in `.uns`
   - `.uns` already embeds the full settings object, so orientation should survive a round trip. Add a regression test greeting file in each orientation and make sure `FileManager.loadUnsFile` applies it.
 
-- **P3-03** `[ ]` **M** — Latin-to-Mongolian mapping editor
-  - Today `config/latin.csv` is static. Add a new "Input" tab in the settings modal that shows the mapping as an editable table. Overrides are stored in localStorage and take precedence over the CSV.
+- **P3-03** `[x]` **M** — Latin-to-Mongolian mapping editor
+  - Impl log: [`DOC/IMPL/PHASE_6_IMPL.md`](../DOC/IMPL/PHASE_6_IMPL.md). New "Input" settings tab shows the mapping (from `config/latin.csv`) as an editable table via `LatinMappingManager` (JS); overrides are stored in localStorage and take precedence over the CSV, per-row reset + "reset all". Verified end-to-end: override a key, confirm live typing conversion uses it, confirm it survives a reload, reset it.
 
 - **P3-04** `[ ]` **S** — Persistent input-mode indicator in status bar
   - Currently the input mode (Latin-to-Mongolian on/off) is only flashed via `updateStatus`. Add a dedicated pill on the right side showing the mode and the keybinding hint.
@@ -159,29 +159,31 @@ Impl log: [`DOC/IMPL/PHASE_4_IMPL.md`](../DOC/IMPL/PHASE_4_IMPL.md) · Patch: `p
 
 ---
 
-## Phase P6 — Keybindings and accessibility
+## Phase P6 — Keybindings and accessibility `[x]`
 
-- **P6-01** `[ ]` **M** — Configurable keybindings
-  - `src/config/keybindings.rs` mapping action ids to key combos. New "Keybindings" tab in the settings modal or edit via the command palette from P1-03. Persist to localStorage.
+Impl log: [`DOC/IMPL/PHASE_6_IMPL.md`](../DOC/IMPL/PHASE_6_IMPL.md) · Patch: `patch/Phase_6.patch` (also covers P3-03 and the rest of Phase P7, done in the same session)
 
-- **P6-02** `[ ]` **S** — Screen-reader announcements
-  - Visually hidden `aria-live="polite"` region mirroring the status bar messages and cursor updates.
+- **P6-01** `[x]` **M** — Configurable keybindings
+  - `src/config/keybindings.rs` (Rust: default combo per action, source of truth) + `KeybindingManager` (JS: localStorage overrides, `KeyboardEvent` matching). New "Keys" tab in the settings modal - click a shortcut, press a new combo, with conflict warnings and per-row/reset-all. Scope decision: only 16 *app-level* actions are configurable (command palette, find/replace, zoom, tabs, save/open/export, transliteration, input-mode toggle) - undo/redo, copy/cut/paste, and typing stay hardcoded in `WasmEditor::handle_key_down`. The global keydown listener's ~140-line `if`-chain was refactored into a data-driven dispatch loop. Verified end-to-end: re-recorded "New Tab" to a new combo, confirmed the old default stopped working and the new one didn't.
 
-- **P6-03** `[ ]` **S** — Focus-indicator audit
-  - Current toolbar buttons rely heavily on `:hover`. Add Tailwind `focus-visible` rings meeting WCAG contrast guidelines.
+- **P6-02** `[x]` **S** — Screen-reader announcements
+  - Two visually hidden `aria-live="polite"` regions (`#sr-status`, `#sr-cursor` - separate so a screen reader doesn't concatenate two different kinds of update into one announcement) mirroring `updateStatus()` and `updateCursorPosition()` respectively.
+
+- **P6-03** `[x]` **S** — Focus-indicator audit
+  - One global `:focus-visible` CSS rule covering every button/link/input/select/`[tabindex]` element in the app (including `#editor-canvas`, which turns out to get `tabindex="0"` dynamically in JS) - not editing dozens of individual Tailwind class lists.
 
 ---
 
 ## Phase P7 — Performance and quality
 
-- **P7-01** `[ ]` **M** — Dirty-flag-driven rendering
-  - The animation loop currently re-renders every `requestAnimationFrame` tick. Refactor to render only when a dirty flag is set (text, cursor, selection, scroll, or settings changed). Cursor blink only repaints a small region.
+- **P7-01** `[x]` **M** — Dirty-flag-driven rendering
+  - Impl log: [`DOC/IMPL/PHASE_6_IMPL.md`](../DOC/IMPL/PHASE_6_IMPL.md). A `dirty: bool` flag on `WasmEditor`, set at 17 mutating call sites, cleared at the end of `render()`. New `needs_render(timestamp)` WASM method (`dirty || cursor-blink-due`) gates both `render()` and `updateCursorPosition()` in `animate()` - previously both ran unconditionally ~60 times/second even fully idle. Verified with a Playwright test polling `needs_render()` until it observes `false`. The "cursor blink only repaints a small region" half of this item's description was deliberately deferred (see impl log) - the implemented gating already skips ~58 of every 60 idle frames entirely, which is the dominant win.
 
-- **P7-02** `[ ]` **S** — WASM size pass
-  - `wasm-opt` is disabled in `Cargo.toml`. Enable it, add a `wasm-strip`/`--strip-all` step to `build.sh` and `build.bat`, and record before/after sizes.
+- **P7-02** `[x]` **S** — WASM size pass
+  - `wasm-opt = ["-Oz"]` enabled in `Cargo.toml` (was `false`): measured 2,805,343 → 2,261,185 bytes, a 19.4% reduction. `wasm-strip` step added to `build.sh`/`build.bat` (skips gracefully if not installed); measured its marginal effect on top of `wasm-opt` at only 235 bytes by fetching a portable WABT release into the sandbox for testing.
 
-- **P7-03** `[~]` **M** — Rust unit tests
-  - Settings serialization round-trip tests landed as a side effect of P4-01's alpha-preserving `color_serde` fix (`src/config/settings.rs`). The format-control `handle_backspace`/`handle_delete` extraction-into-pure-functions is still outstanding — hence `[~]` rather than `[x]`.
+- **P7-03** `[x]` **M** — Rust unit tests
+  - Impl log: [`DOC/IMPL/PHASE_6_IMPL.md`](../DOC/IMPL/PHASE_6_IMPL.md). The format-control `handle_backspace`/`handle_delete` logic is now extracted into pure functions in `src/editor_core/format_control.rs` (`backspace_plan`/`delete_plan` returning a `DeletePlan { backspaces, deletes }`), with 18 unit tests. Combined with the settings round-trip tests from P4-01, both halves of this item are done.
 
 - **P7-04** `[x]` **S** — Playwright smoke test
   - Impl log: [`DOC/IMPL/PHASE_7_04_IMPL.md`](../DOC/IMPL/PHASE_7_04_IMPL.md) · Patch: `patch/Phase_7_04.patch`. Done ahead of the suggested order, at the user's request, specifically so P8-03 could be built with real automated browser verification. `tests/e2e/smoke.spec.js` covers the full checklist (type, toggle orientation, settings save, reload, content + settings survive) against a real headless Chromium installed in this environment — confirmed to both pass on the real app and fail when deliberately broken. Wired into a new `.github/workflows/e2e.yml` (added proactively; not executed on a real runner yet, only syntax-validated). Uses a small read-only `window.__unsTestHooks` seam in `index.html` since the editor renders to `<canvas>` with no DOM text to assert against otherwise.
@@ -214,7 +216,12 @@ Items inherited from the original `IMPLEMENTATION_SUMMARY.md` deferred list, plu
 4. ~~**Phase P4 themes**, **P8-04 zoom**, **P5-02 dirty indicator**~~ — done (see `DOC/IMPL/PHASE_4_IMPL.md`).
 5. ~~**P7-04 Playwright smoke test**~~ — done out of order, at the user's explicit request (see `DOC/IMPL/PHASE_7_04_IMPL.md`), ahead of P8-03 so tabs could be built with real browser verification.
 6. ~~**P8-03 multiple documents / tab strip**~~ — done, out of the original suggested order at the user's explicit request (see `DOC/IMPL/PHASE_8_03_IMPL.md`).
-7. **Phase P6 keybindings**, **P3-03 Latin-map editor**, remainder of **Phase P7** performance and tests. Power-user and quality. **← next.**
+7. ~~**Phase P6 keybindings**, **P3-03 Latin-map editor**, remainder of **Phase P7** performance and tests~~ — done (see `DOC/IMPL/PHASE_6_IMPL.md`).
+
+All items from the original "suggested order" list are now done. Remaining
+backlog (none block each other): Phase P5 (`P5-01`, `P5-03`, `P5-04`),
+`P3-01`/`P3-02`/`P3-04`, and Phase P8 stretch items (`P8-01`, `P8-02`).
+**← next: whichever of these the user wants to prioritize.**
 
 ## Open questions (resolutions recorded)
 
@@ -227,6 +234,7 @@ Items inherited from the original `IMPLEMENTATION_SUMMARY.md` deferred list, plu
 7. **P8-03 architecture: JS-level tabs on one shared `WasmEditor`, vs. per-tab state in Rust.** — **Resolved (JS-level/lightweight).** Chosen specifically to avoid a large, risky refactor of `lib.rs` (which assumes one document throughout) so soon after P2/P4/P5 shipped. Trade-off accepted: undo/redo and find/replace state reset when switching tabs (same as opening a file already does today), not preserved per-tab.
 8. **P8-03: does Open File create a new tab or replace the active one?** — **Resolved (new tab).** Matches how most tabbed editors behave; also makes the P5-02 "confirm before Open discards work" guard unnecessary for Open specifically (nothing is discarded any more), though it stays for Clear Document.
 9. **P8-03: do tabs persist across a reload?** — **Resolved (yes, all open tabs).** This supersedes the P2-05 single-document auto-save draft + recovery banner: instead of prompting "restore an old draft?", every tab's content is continuously persisted and the whole tab strip reappears silently on reload. `tests/e2e/smoke.spec.js` (P7-04) targets the pre-P8-03 banner behavior and needs updating once this lands - tracked explicitly, not forgotten.
+10. **P6/P3-03/P7 scope: all 7 items together, or split?** — **Resolved (all together).** Same pattern as the P2 and P4 batches. One sub-decision recorded: P6-01's configurable keybindings only cover 16 app-level actions, deliberately excluding undo/redo/copy/cut/paste/typing (which stay hardcoded in Rust's `handle_key_down`).
 
 ## Resuming after a context loss
 

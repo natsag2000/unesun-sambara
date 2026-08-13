@@ -15,6 +15,7 @@ use web_sys::{CanvasRenderingContext2d, HtmlCanvasElement, ImageData, KeyboardEv
 use dictionary::lookup::Dictionary;
 use editor_core::editor_state::EditorState;
 use editor_core::events::{EditorEvent, KeyInfo};
+use editor_core::format_control;
 use editor_core::history::EditKind;
 use editor_core::plugin::{PluginContext, PluginRegistry};
 use config::settings::EditorSettings;
@@ -47,6 +48,15 @@ pub struct WasmEditor {
     is_touch_scrolling: bool,
     dictionary: Option<Dictionary>,
     translit_renderer: Option<TranslitRenderer>,
+    /// P7-01: set by every method that changes what the main canvas
+    /// should look like; cleared at the end of `render()`. Consulted by
+    /// `needs_render()`, which the JS `animate()` loop calls every RAF
+    /// tick to decide whether to actually call `render()` this frame -
+    /// previously `render()` (which rebuilds a full `width*height*4`
+    /// pixel buffer and calls `put_image_data`) ran unconditionally on
+    /// every tick, ~60 times a second, even while the document was
+    /// completely idle.
+    dirty: bool,
 }
 
 #[wasm_bindgen]
@@ -95,6 +105,7 @@ impl WasmEditor {
             is_touch_scrolling: false,
             dictionary: None,
             translit_renderer: None,
+            dirty: true,
         })
     }
 
@@ -124,6 +135,7 @@ impl WasmEditor {
     }
 
     pub fn set_size(&mut self, width: u32, height: u32) {
+        self.dirty = true;
         self.width = width;
         self.height = height;
         self.canvas.set_width(width);
@@ -154,6 +166,19 @@ impl WasmEditor {
         }
     }
 
+    /// True if the JS `animate()` loop should actually call `render()`
+    /// this frame (P7-01). Two reasons to render: something the user
+    /// did (or a programmatic change) marked the frame dirty, or the
+    /// cursor's 500ms blink interval has elapsed - the latter check
+    /// mirrors the one `render()` itself does internally, so the
+    /// cursor keeps blinking at its usual rate even while otherwise
+    /// idle. Cheap to call every RAF tick: no pixel work, just a bool
+    /// and a float comparison.
+    #[wasm_bindgen]
+    pub fn needs_render(&self, timestamp: f64) -> bool {
+        self.dirty || (timestamp - self.state.last_render_time > 500.0)
+    }
+
     pub fn render(&mut self, timestamp: f64) -> Result<(), JsValue> {
         // Handle cursor blinking
         if timestamp - self.state.last_render_time > 500.0 {
@@ -166,7 +191,7 @@ impl WasmEditor {
 
         // Clear with background color from settings
         let bg = &self.state.settings.appearance.background_color;
-        self.context.set_fill_style(&format!("rgb({}, {}, {})", bg.r(), bg.g(), bg.b()).into());
+        self.context.set_fill_style_str(&format!("rgb({}, {}, {})", bg.r(), bg.g(), bg.b()));
         self.context.fill_rect(0.0, 0.0, width as f64, height as f64);
 
         let mut pixels = vec![0u8; width * height * 4];
@@ -246,6 +271,11 @@ impl WasmEditor {
             self.draw_gutter(scroll_offset, left_padding, top_padding)?;
         }
 
+        // P7-01: this frame is now up to date; the next call to
+        // `needs_render()` should return `false` until something
+        // changes again (or the next blink is due).
+        self.dirty = false;
+
         Ok(())
     }
 
@@ -260,8 +290,8 @@ impl WasmEditor {
         let width = self.width as f64;
         let height = self.height as f64;
 
-        self.context.set_fill_style(
-            &format!("rgb({}, {}, {})", gutter_bg.r(), gutter_bg.g(), gutter_bg.b()).into(),
+        self.context.set_fill_style_str(
+            &format!("rgb({}, {}, {})", gutter_bg.r(), gutter_bg.g(), gutter_bg.b()),
         );
         if is_vertical {
             self.context.fill_rect(0.0, 0.0, width, GUTTER_HEIGHT as f64);
@@ -289,8 +319,8 @@ impl WasmEditor {
             }
         });
 
-        self.context.set_fill_style(
-            &format!("rgb({}, {}, {})", line_num_color.r(), line_num_color.g(), line_num_color.b()).into(),
+        self.context.set_fill_style_str(
+            &format!("rgb({}, {}, {})", line_num_color.r(), line_num_color.g(), line_num_color.b()),
         );
         self.context.set_font("12px monospace");
         self.context.set_text_baseline(if is_vertical { "top" } else { "middle" });
@@ -317,242 +347,67 @@ impl WasmEditor {
         Ok(())
     }
 
-    // Check if a character is a Mongolian format control character
-    fn is_format_control(c: char) -> bool {
-        matches!(c, '\u{180B}' | '\u{180C}' | '\u{180D}' | '\u{180E}' | '\u{180F}' | '\u{202F}')
-    }
-
-    // Check if format control comes AFTER visible char: [visible][format]
-    // U+180B, U+180C, U+180D, U+180F
-    fn is_format_after_visible(c: char) -> bool {
-        matches!(c, '\u{180B}' | '\u{180C}' | '\u{180D}' | '\u{180F}')
-    }
-
-    // Check if format control comes BEFORE visible char: [format][visible]
-    // U+180E, U+202F
-    fn is_format_before_visible(c: char) -> bool {
-        matches!(c, '\u{180E}' | '\u{202F}')
-    }
-
-    // Handle backspace with format control character awareness
-    // Two patterns:
-    // 1. [visible][format_after] - U+180B, U+180C, U+180D, U+180F
-    // 2. [format_before][visible] - U+180E, U+202F
-    fn handle_backspace(&mut self) {
-        let cursor = self.state.editor.cursor();
-        let cursor_index = cursor.index;
-        let cursor_line = cursor.line;
-
-        // Get current line text - cursor.index is relative to this line
-        let line_text = self.state.editor.with_buffer(|buffer| {
-            buffer.lines.get(cursor_line).map(|line| line.text().to_string())
-        });
-
-        let line_text = match line_text {
-            Some(text) => text,
-            None => {
-                // Fallback to normal backspace
-                self.state.editor.action(&mut self.state.font_system, Action::Backspace);
-                return;
-            }
-        };
-
-        // Convert byte index to character index
-        let char_index = line_text[..cursor_index.min(line_text.len())].chars().count();
-
-        let chars: Vec<char> = line_text.chars().collect();
-
-        if char_index == 0 || char_index > chars.len() {
-            // At start or invalid position, use normal backspace
+    /// Run a [`format_control::DeletePlan`] against the live editor:
+    /// all backspaces, then all deletes (see the module doc comment on
+    /// why that fixed order covers every plan this module produces).
+    fn apply_delete_plan(&mut self, plan: format_control::DeletePlan) {
+        for _ in 0..plan.backspaces {
             self.state.editor.action(&mut self.state.font_system, Action::Backspace);
-            return;
         }
-
-        let cursor_index = char_index;
-        let char_before = chars[cursor_index - 1];
-
-        // Pattern 1: [visible][format_after] - cursor after format
-        if Self::is_format_after_visible(char_before) {
-            // Count all consecutive format_after controls
-            let mut format_count = 1;
-            let mut pos = cursor_index - 1;
-            while pos > 0 && Self::is_format_after_visible(chars[pos - 1]) {
-                format_count += 1;
-                pos -= 1;
-            }
-
-            // Check if there's a visible char before the formats
-            if pos > 0 && !Self::is_format_control(chars[pos - 1]) {
-                // Delete formats + visible char before them
-                for _ in 0..(format_count + 1) {
-                    self.state.editor.action(&mut self.state.font_system, Action::Backspace);
-                }
-            } else {
-                // No visible char before, just delete the format
-                self.state.editor.action(&mut self.state.font_system, Action::Backspace);
-            }
-            return;
+        for _ in 0..plan.deletes {
+            self.state.editor.action(&mut self.state.font_system, Action::Delete);
         }
-
-        // Pattern 2: [format_before][visible] - cursor after visible
-        if !Self::is_format_control(char_before) {
-            // Check if there are format_before controls before this visible char
-            let mut format_count = 0;
-            let mut pos = cursor_index - 1;
-            while pos > 0 && Self::is_format_before_visible(chars[pos - 1]) {
-                format_count += 1;
-                pos -= 1;
-            }
-
-            if format_count > 0 {
-                // Delete visible char + format_before controls before it
-                for _ in 0..(format_count + 1) {
-                    self.state.editor.action(&mut self.state.font_system, Action::Backspace);
-                }
-            } else {
-                // No format controls, normal delete
-                self.state.editor.action(&mut self.state.font_system, Action::Backspace);
-            }
-            return;
-        }
-
-        // Cursor is after format_before control - could be between [format_before] and [visible]
-        if Self::is_format_before_visible(char_before) {
-            let mut format_count = 1;
-            let mut pos = cursor_index - 1;
-            while pos > 0 && Self::is_format_before_visible(chars[pos - 1]) {
-                format_count += 1;
-                pos -= 1;
-            }
-
-            // Check if there's a visible char after cursor
-            if cursor_index < chars.len() && !Self::is_format_control(chars[cursor_index]) {
-                // Delete format_before controls + visible char after
-                for _ in 0..format_count {
-                    self.state.editor.action(&mut self.state.font_system, Action::Backspace);
-                }
-                self.state.editor.action(&mut self.state.font_system, Action::Delete);
-            } else {
-                // No visible char after, just delete the format
-                self.state.editor.action(&mut self.state.font_system, Action::Backspace);
-            }
-            return;
-        }
-
-        // Default: normal backspace
-        self.state.editor.action(&mut self.state.font_system, Action::Backspace);
     }
 
-    // Handle delete with format control character awareness
-    // Two patterns:
-    // 1. [visible][format_after] - U+180B, U+180C, U+180D, U+180F
-    // 2. [format_before][visible] - U+180E, U+202F
-    fn handle_delete(&mut self) {
+    /// Get the current line's characters and the cursor's
+    /// character-index position within it (as opposed to
+    /// `cursor.index`, which is a *byte* offset) - the shared setup
+    /// `handle_backspace`/`handle_delete` both need before consulting
+    /// `format_control::backspace_plan`/`delete_plan`.
+    fn current_line_chars_and_cursor(&self) -> Option<(Vec<char>, usize)> {
         let cursor = self.state.editor.cursor();
-        let cursor_index = cursor.index;
+        let cursor_byte_index = cursor.index;
         let cursor_line = cursor.line;
 
-        // Get current line text - cursor.index is relative to this line
         let line_text = self.state.editor.with_buffer(|buffer| {
             buffer.lines.get(cursor_line).map(|line| line.text().to_string())
-        });
+        })?;
 
-        let line_text = match line_text {
-            Some(text) => text,
-            None => {
-                // Fallback to normal delete
-                self.state.editor.action(&mut self.state.font_system, Action::Delete);
-                return;
-            }
-        };
-
-        // Convert byte index to character index
-        let char_index = line_text[..cursor_index.min(line_text.len())].chars().count();
-
+        let char_index = line_text[..cursor_byte_index.min(line_text.len())]
+            .chars()
+            .count();
         let chars: Vec<char> = line_text.chars().collect();
+        Some((chars, char_index))
+    }
 
-        if char_index >= chars.len() {
-            // At end or invalid position, use normal delete
-            self.state.editor.action(&mut self.state.font_system, Action::Delete);
-            return;
-        }
+    // Handle backspace with Mongolian format-control-character
+    // awareness. Decision logic lives in `editor_core::format_control`
+    // (extracted and unit-tested in P7-03); this just wires the plan it
+    // produces up to the live cosmic-text `Editor`.
+    fn handle_backspace(&mut self) {
+        let plan = match self.current_line_chars_and_cursor() {
+            Some((chars, cursor_index)) => format_control::backspace_plan(&chars, cursor_index),
+            None => format_control::DeletePlan { backspaces: 1, deletes: 0 },
+        };
+        self.apply_delete_plan(plan);
+    }
 
-        let cursor_index = char_index;
-        let char_at = chars[cursor_index];
-
-        // Pattern 1: [visible][format_after] - cursor before visible
-        if !Self::is_format_control(char_at) {
-            // Count format_after controls after this visible char
-            let mut format_count = 0;
-            let mut pos = cursor_index + 1;
-            while pos < chars.len() && Self::is_format_after_visible(chars[pos]) {
-                format_count += 1;
-                pos += 1;
-            }
-
-            if format_count > 0 {
-                // Delete visible char + format_after controls after it
-                for _ in 0..(format_count + 1) {
-                    self.state.editor.action(&mut self.state.font_system, Action::Delete);
-                }
-            } else {
-                // No format controls, normal delete
-                self.state.editor.action(&mut self.state.font_system, Action::Delete);
-            }
-            return;
-        }
-
-        // Pattern 2: [format_before][visible] - cursor before format_before
-        if Self::is_format_before_visible(char_at) {
-            // Count all consecutive format_before controls
-            let mut format_count = 1;
-            let mut pos = cursor_index + 1;
-            while pos < chars.len() && Self::is_format_before_visible(chars[pos]) {
-                format_count += 1;
-                pos += 1;
-            }
-
-            // Check if there's a visible char after the formats
-            if pos < chars.len() && !Self::is_format_control(chars[pos]) {
-                // Delete format_before controls + visible char after them
-                for _ in 0..(format_count + 1) {
-                    self.state.editor.action(&mut self.state.font_system, Action::Delete);
-                }
-            } else {
-                // No visible char after, just delete the format
-                self.state.editor.action(&mut self.state.font_system, Action::Delete);
-            }
-            return;
-        }
-
-        // Cursor is before format_after - could be between [visible] and [format_after]
-        if Self::is_format_after_visible(char_at) {
-            let mut format_count = 1;
-            let mut pos = cursor_index + 1;
-            while pos < chars.len() && Self::is_format_after_visible(chars[pos]) {
-                format_count += 1;
-                pos += 1;
-            }
-
-            // Check if there's a visible char before cursor
-            if cursor_index > 0 && !Self::is_format_control(chars[cursor_index - 1]) {
-                // Delete visible char before + format_after controls
-                self.state.editor.action(&mut self.state.font_system, Action::Backspace);
-                for _ in 0..format_count {
-                    self.state.editor.action(&mut self.state.font_system, Action::Delete);
-                }
-            } else {
-                // No visible char before, just delete the format
-                self.state.editor.action(&mut self.state.font_system, Action::Delete);
-            }
-            return;
-        }
-
-        // Default: normal delete
-        self.state.editor.action(&mut self.state.font_system, Action::Delete);
+    // Handle delete with Mongolian format-control-character awareness.
+    // See `handle_backspace` above.
+    fn handle_delete(&mut self) {
+        let plan = match self.current_line_chars_and_cursor() {
+            Some((chars, cursor_index)) => format_control::delete_plan(&chars, cursor_index),
+            None => format_control::DeletePlan { backspaces: 0, deletes: 1 },
+        };
+        self.apply_delete_plan(plan);
     }
 
     pub fn handle_key_down(&mut self, event: KeyboardEvent) -> Result<(), JsValue> {
+        // P7-01: set unconditionally rather than per-branch - every
+        // branch below either changes the cursor/selection/text, or is
+        // a no-op (e.g. Ctrl+C) cheap enough that an extra unnecessary
+        // render isn't worth the risk of missing a spot.
+        self.dirty = true;
         self.shift_pressed = event.shift_key();
         self.ctrl_pressed = event.ctrl_key() || event.meta_key();
 
@@ -747,6 +602,7 @@ impl WasmEditor {
     }
 
     pub fn handle_mouse_down(&mut self, event: MouseEvent) -> Result<(), JsValue> {
+        self.dirty = true; // P7-01
         // Get mouse position relative to canvas
         let target = event
             .target()
@@ -794,6 +650,7 @@ impl WasmEditor {
         if !self.is_dragging || self.is_touch_scrolling {
             return Ok(());
         }
+        self.dirty = true; // P7-01: only past this point does drag actually extend the selection.
 
         // Get mouse position relative to canvas
         let target = event
@@ -830,6 +687,7 @@ impl WasmEditor {
     }
 
     pub fn handle_wheel(&mut self, event: WheelEvent) -> Result<(), JsValue> {
+        self.dirty = true; // P7-01
         // Get scroll delta
         let delta_x = event.delta_x();
         let delta_y = event.delta_y();
@@ -847,6 +705,7 @@ impl WasmEditor {
     }
 
     pub fn handle_touch_start(&mut self, event: TouchEvent) -> Result<(), JsValue> {
+        self.dirty = true; // P7-01
         if let Some(touch) = event.touches().item(0) {
             self.last_touch_x = touch.client_x();
             self.last_touch_y = touch.client_y();
@@ -889,6 +748,7 @@ impl WasmEditor {
     }
 
     pub fn handle_touch_move(&mut self, event: TouchEvent) -> Result<(), JsValue> {
+        self.dirty = true; // P7-01
         if let Some(touch) = event.touches().item(0) {
             let current_x = touch.client_x();
             let current_y = touch.client_y();
@@ -980,6 +840,7 @@ impl WasmEditor {
     }
 
     pub fn set_text(&mut self, text: &str) {
+        self.dirty = true; // P7-01
         use cosmic_text::{Attrs, Shaping, Family};
         let font_system = &mut self.state.font_system;
         let font_family = self.state.settings.fonts.font_family.clone();
@@ -1006,6 +867,7 @@ impl WasmEditor {
     }
 
     pub fn insert_text(&mut self, text: &str) {
+        self.dirty = true; // P7-01
         // Programmatic bulk insert (paste, Latin->Mongolian conversion,
         // transliteration insert, ...). Always its own atomic undo step
         // (P2-01), never coalesced with adjacent typing.
@@ -1026,6 +888,7 @@ impl WasmEditor {
     }
 
     pub fn delete_selection(&mut self) {
+        self.dirty = true; // P7-01
         self.state.flush_history_group();
         self.state.begin_history_group(EditKind::Paste, js_sys::Date::now());
         self.state.editor.action(&mut self.state.font_system, Action::Backspace);
@@ -1044,6 +907,7 @@ impl WasmEditor {
     pub fn undo(&mut self) -> bool {
         let did = self.state.undo();
         if did {
+            self.dirty = true; // P7-01
             self.state.cursor_visible = true;
             self.dispatch_event(EditorEvent::TextChanged);
         }
@@ -1056,6 +920,7 @@ impl WasmEditor {
     pub fn redo(&mut self) -> bool {
         let did = self.state.redo();
         if did {
+            self.dirty = true; // P7-01
             self.state.cursor_visible = true;
             self.dispatch_event(EditorEvent::TextChanged);
         }
@@ -1073,6 +938,7 @@ impl WasmEditor {
     }
 
     pub fn toggle_vertical(&mut self) {
+        self.dirty = true; // P7-01
         use cosmic_text::TextOrientation;
 
         // Update settings
@@ -1112,6 +978,7 @@ impl WasmEditor {
 
     #[wasm_bindgen]
     pub fn set_settings_json(&mut self, json: &str) -> Result<(), JsValue> {
+        self.dirty = true; // P7-01
         let settings = EditorSettings::from_json(json)?;
         self.state.update_settings(settings);
         self.dispatch_event(EditorEvent::SettingsChanged);
@@ -1124,6 +991,7 @@ impl WasmEditor {
     /// `prompt/FUTURE_PLAN.md`.
     #[wasm_bindgen]
     pub fn reset_to_defaults(&mut self) -> Result<String, JsValue> {
+        self.dirty = true; // P7-01
         let settings = EditorSettings::default();
         let json = settings.to_json()?;
         self.state.update_settings(settings);
@@ -1147,6 +1015,20 @@ impl WasmEditor {
     #[wasm_bindgen]
     pub fn list_themes(&self) -> Result<String, JsValue> {
         serde_json::to_string(&config::themes::built_in_themes())
+            .map_err(|e| JsValue::from_str(&e.to_string()))
+    }
+
+    /// Returns the default app-level keybindings (P6-01) as a JSON
+    /// array of `{ id, label, default }`. Does not mutate editor
+    /// state - the JS `KeybindingManager` layers localStorage overrides
+    /// on top and owns the actual `KeyboardEvent` matching; Rust is
+    /// only the source of truth for what ships out of the box. See
+    /// `src/config/keybindings.rs` for the full scope rationale (only
+    /// app-level shortcuts are covered, not low-level text-editing
+    /// keys like undo/redo).
+    #[wasm_bindgen]
+    pub fn list_keybindings(&self) -> Result<String, JsValue> {
+        serde_json::to_string(&config::keybindings::default_keybindings())
             .map_err(|e| JsValue::from_str(&e.to_string()))
     }
 
@@ -1189,6 +1071,11 @@ impl WasmEditor {
     /// * Any error the handler itself raises.
     #[wasm_bindgen]
     pub fn run_command(&mut self, id: &str, args_json: &str) -> Result<JsValue, JsValue> {
+        // P7-01: commands can mutate practically anything (text,
+        // settings, selection - see the plugin API), so mark dirty
+        // unconditionally rather than trying to enumerate every
+        // built-in and future command's visual effect.
+        self.dirty = true;
         // Copy the handler pointer out so we can release the immutable
         // borrow on the registry before running the handler (which
         // wants a mutable borrow of `state`).
@@ -1231,6 +1118,7 @@ impl WasmEditor {
     /// handling rather than erroring on stale positions.
     #[wasm_bindgen]
     pub fn set_cursor_position(&mut self, line: usize, column: usize) {
+        self.dirty = true; // P7-01
         let line = line.saturating_sub(1);
         let index = column.saturating_sub(1);
         self.state.editor.set_cursor(Cursor::new(line, index));
@@ -1248,6 +1136,9 @@ impl WasmEditor {
             return Ok(());
         }
         let dict = Dictionary::load(&url).await?;
+        web_sys::console::log_1(
+            &format!("Transliteration dictionary loaded: {} entries", dict.len()).into(),
+        );
         self.dictionary = Some(dict);
         Ok(())
     }

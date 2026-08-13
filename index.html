@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>unesun sambarA - Mongolian Text Editor</title>
-    <link rel="stylesheet" href="dist/output.css?v=12" />
+    <link rel="stylesheet" href="dist/output.css?v=13" />
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0"
@@ -170,6 +170,29 @@
 
       .toolbar-btn.active {
         background-color: #3b82f6;
+      }
+
+      /*
+        Focus-visible audit (Phase P6-03). A single global rule rather
+        than editing every button's class list individually - this app
+        has dozens of buttons across the toolbar and four modals, all
+        previously relying on `:hover` alone with no visible keyboard-
+        focus indicator. `:focus-visible` (not `:focus`) so the ring
+        only appears for keyboard/programmatic focus, not every mouse
+        click - consistent with how `.toolbar-btn:active` already gives
+        pointer interactions their own (different) feedback.
+        White-on-dark 2px outline with a 2px offset comfortably clears
+        WCAG 2.1 SC 1.4.11's 3:1 non-text contrast minimum against both
+        `editor-header` (#252526) and `editor-bg` (#1e1e1e) - the two
+        backgrounds every button in this app sits on.
+      */
+      button:focus-visible,
+      a:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      [tabindex]:focus-visible {
+        outline: 2px solid #ffffff;
+        outline-offset: 2px;
       }
 
       /* Responsive toolbar on mobile */
@@ -475,6 +498,22 @@
           <span id="cursor-position" class="hidden">Line 1, Col 1</span>
         </div>
       </div>
+
+      <!--
+        Screen-reader announcements (Phase P6-02). Visually hidden
+        (`sr-only`); mirrors `#status-message` and `#cursor-position`
+        respectively so a screen reader user gets the same feedback a
+        sighted user reads off the status bar. Two separate regions
+        (status text vs. cursor position) rather than one shared region,
+        so the two kinds of update don't get concatenated into a
+        confusing single announcement. `aria-live="polite"` naturally
+        avoids spamming - browsers only fire an accessibility update
+        when a live region's content actually changes, and
+        `updateCursorPosition()` runs every animation frame but only
+        writes a new value when the cursor actually moved.
+      -->
+      <div id="sr-status" aria-live="polite" class="sr-only"></div>
+      <div id="sr-cursor" aria-live="polite" class="sr-only"></div>
     </div>
 
     <!-- Settings Modal -->
@@ -516,6 +555,18 @@
             class="settings-tab flex-1 px-6 py-3 text-sm font-medium text-editor-text hover:text-white hover:bg-editor-bg transition-colors border-b-2 border-transparent"
           >
             Editor
+          </button>
+          <button
+            id="input-tab-btn"
+            class="settings-tab flex-1 px-6 py-3 text-sm font-medium text-editor-text hover:text-white hover:bg-editor-bg transition-colors border-b-2 border-transparent"
+          >
+            Input
+          </button>
+          <button
+            id="keybindings-tab-btn"
+            class="settings-tab flex-1 px-6 py-3 text-sm font-medium text-editor-text hover:text-white hover:bg-editor-bg transition-colors border-b-2 border-transparent"
+          >
+            Keys
           </button>
         </div>
 
@@ -829,6 +880,81 @@
               </label>
             </div>
           </div>
+
+          <!-- Input Tab (P3-03): editable Latin -> Mongolian key mapping. -->
+          <div id="input-tab" class="settings-tab-content p-6 hidden">
+            <div class="space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <label class="block text-xs font-medium text-editor-text-dim">
+                  Latin &rarr; Mongolian key mapping
+                </label>
+                <button
+                  id="latin-mapping-reset-all-btn"
+                  class="text-xs text-editor-text-dim hover:text-editor-text underline"
+                >
+                  Reset all to defaults
+                </button>
+              </div>
+              <p class="text-editor-text-dim text-xs">
+                Type a replacement in the "Mongolian" column to override a key. Overrides are saved in
+                this browser and take precedence over the built-in mapping; the &#8634; button resets a
+                single row. Some values are invisible format-control characters - hover a field for its
+                Unicode code point.
+              </p>
+              <div class="border border-editor-border rounded overflow-y-auto" style="max-height: 320px;">
+                <table class="w-full text-sm">
+                  <thead class="sticky top-0 bg-editor-header">
+                    <tr>
+                      <th class="text-left px-3 py-2 text-editor-text-dim font-medium">Key</th>
+                      <th class="text-left px-3 py-2 text-editor-text-dim font-medium">Mongolian</th>
+                      <th class="px-3 py-2 w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="latin-mapping-table-body">
+                    <!-- Rendered by SettingsModal.renderLatinMappingTable() -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Keybindings Tab (P6-01): app-level shortcuts only - see
+               src/config/keybindings.rs for why undo/redo, copy/paste,
+               and typing aren't included. -->
+          <div id="keybindings-tab" class="settings-tab-content p-6 hidden">
+            <div class="space-y-3">
+              <div class="flex items-center justify-between gap-3">
+                <label class="block text-xs font-medium text-editor-text-dim">
+                  Keyboard shortcuts
+                </label>
+                <button
+                  id="keybindings-reset-all-btn"
+                  class="text-xs text-editor-text-dim hover:text-editor-text underline"
+                >
+                  Reset all to defaults
+                </button>
+              </div>
+              <p class="text-editor-text-dim text-xs">
+                Click a shortcut, then press a new key combination. Undo/redo, copy/cut/paste, and
+                typing are not reconfigurable here. Some combinations (closing/cycling browser tabs)
+                may be reserved by your browser regardless of what's set here.
+              </p>
+              <div class="border border-editor-border rounded overflow-y-auto" style="max-height: 320px;">
+                <table class="w-full text-sm">
+                  <thead class="sticky top-0 bg-editor-header">
+                    <tr>
+                      <th class="text-left px-3 py-2 text-editor-text-dim font-medium">Action</th>
+                      <th class="text-left px-3 py-2 text-editor-text-dim font-medium">Shortcut</th>
+                      <th class="px-3 py-2 w-10"></th>
+                    </tr>
+                  </thead>
+                  <tbody id="keybindings-table-body">
+                    <!-- Rendered by SettingsModal.renderKeybindingsTable() -->
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Footer -->
@@ -1072,7 +1198,7 @@
     </div>
 
     <script type="module">
-      import init, { WasmEditor } from "./pkg/uns_editor.js?v=7";
+      import init, { WasmEditor } from "./pkg/uns_editor.js?v=9";
 
       let editor = null;
       let animationId = null;
@@ -1334,6 +1460,10 @@
 
       function updateStatus(message) {
         document.getElementById("status-message").textContent = message;
+        // P6-02: mirror into the visually-hidden live region so screen
+        // reader users get the same feedback.
+        const srStatus = document.getElementById("sr-status");
+        if (srStatus) srStatus.textContent = message;
       }
 
       // P8-04: bump font size (and proportionally, line height, so the
@@ -1403,6 +1533,14 @@
               `Line ${cursor.line}, Col ${cursor.column}`;
           }
           document.getElementById("cursor-position").classList.remove("hidden");
+          // P6-02: mirror into the visually-hidden live region. Runs
+          // every animation frame (like the rest of this function), but
+          // only actually announces when the text differs from last
+          // time - see the live regions' doc comment in the HTML above.
+          const srCursor = document.getElementById("sr-cursor");
+          if (srCursor) {
+            srCursor.textContent = document.getElementById("cursor-position").textContent;
+          }
 
           // Update Unicode info for character before cursor
           const unicodeInfoEl = document.getElementById("unicode-info");
@@ -1467,7 +1605,15 @@
       }
 
       function animate(timestamp) {
-        if (editor && !renderPaused) {
+        // P7-01: skip both the canvas redraw and the status-bar/word-
+        // count refresh unless something actually changed (or the
+        // cursor's blink interval is due) - `needs_render()` is a cheap
+        // flag check, unlike `render()` (rebuilds a full pixel buffer +
+        // `putImageData`) or `updateCursorPosition()` (calls
+        // `get_text()`, which is O(document length), on every call).
+        // Both used to run unconditionally on every RAF tick, ~60
+        // times/second, even while completely idle.
+        if (editor && !renderPaused && editor.needs_render(timestamp)) {
           try {
             editor.render(timestamp);
             updateCursorPosition();
@@ -1574,10 +1720,20 @@
             fontBtn: document.getElementById("font-tab-btn"),
             colorBtn: document.getElementById("color-tab-btn"),
             editorBtn: document.getElementById("editor-tab-btn"),
+            inputBtn: document.getElementById("input-tab-btn"),
+            keybindingsBtn: document.getElementById("keybindings-tab-btn"),
             fontPanel: document.getElementById("font-tab"),
             colorPanel: document.getElementById("color-tab"),
             editorPanel: document.getElementById("editor-tab"),
+            inputPanel: document.getElementById("input-tab"),
+            keybindingsPanel: document.getElementById("keybindings-tab"),
           };
+
+          this.keybindingsTableBody = document.getElementById("keybindings-table-body");
+          this.keybindingsResetAllBtn = document.getElementById("keybindings-reset-all-btn");
+
+          this.latinMappingTableBody = document.getElementById("latin-mapping-table-body");
+          this.latinMappingResetAllBtn = document.getElementById("latin-mapping-reset-all-btn");
         }
 
         attachEventListeners() {
@@ -1600,6 +1756,58 @@
           addHandler(this.tabs.fontBtn, () => this.switchTab("font"));
           addHandler(this.tabs.colorBtn, () => this.switchTab("color"));
           addHandler(this.tabs.editorBtn, () => this.switchTab("editor"));
+          addHandler(this.tabs.inputBtn, () => this.switchTab("input"));
+
+          // Latin mapping table (P3-03): event delegation on the table
+          // body rather than one listener per row, since rows are
+          // re-rendered wholesale on every change anyway.
+          this.latinMappingTableBody.addEventListener("input", (e) => {
+            const input = e.target.closest("input[data-latin-key]");
+            if (!input) return;
+            const key = input.dataset.latinKey;
+            latinMapping.setOverride(key, input.value);
+            // Update just this row's border/reset-button/tooltip rather
+            // than re-rendering the whole table, which would steal
+            // focus from the input the user is actively typing in.
+            this.refreshLatinMappingRow(input, key);
+          });
+          this.latinMappingTableBody.addEventListener("click", (e) => {
+            const button = e.target.closest("button[data-latin-reset-key]");
+            if (!button) return;
+            latinMapping.resetKey(button.dataset.latinResetKey);
+            this.renderLatinMappingTable();
+          });
+          addHandler(this.latinMappingResetAllBtn, () => {
+            if (confirm("Reset all Latin-to-Mongolian key overrides to defaults?")) {
+              latinMapping.resetAll();
+              this.renderLatinMappingTable();
+              updateStatus("Latin key mapping reset to defaults");
+            }
+          });
+
+          addHandler(this.tabs.keybindingsBtn, () => this.switchTab("keybindings"));
+
+          // Keybindings table (P6-01): event delegation, same pattern as
+          // the Latin mapping table above.
+          this.keybindingsTableBody.addEventListener("click", (e) => {
+            const recordBtn = e.target.closest("button[data-keybinding-record]");
+            if (recordBtn) {
+              this.startRecordingKeybinding(recordBtn, recordBtn.dataset.keybindingRecord);
+              return;
+            }
+            const resetBtn = e.target.closest("button[data-keybinding-reset]");
+            if (resetBtn) {
+              keybindings.resetKey(resetBtn.dataset.keybindingReset);
+              this.renderKeybindingsTable();
+            }
+          });
+          addHandler(this.keybindingsResetAllBtn, () => {
+            if (confirm("Reset all keyboard shortcuts to defaults?")) {
+              keybindings.resetAll();
+              this.renderKeybindingsTable();
+              updateStatus("Keyboard shortcuts reset to defaults");
+            }
+          });
 
           // Helper function to update font size from any control
           const updateFontSize = (size) => {
@@ -1891,6 +2099,172 @@
           };
         }
 
+        // Full (re)render of the Latin mapping table (P3-03) - used on
+        // first visiting the Input tab, after "Reset all", and after
+        // resetting a single row (where rebuilding the whole table is
+        // fine since focus wasn't in that row's input to begin with).
+        renderLatinMappingTable() {
+          if (!latinMapping) return;
+          this.latinMappingTableBody.innerHTML = "";
+          for (const key of latinMapping.orderedKeys()) {
+            const row = document.createElement("tr");
+            row.className = "border-t border-editor-border";
+
+            const keyCell = document.createElement("td");
+            keyCell.className = "px-3 py-1.5 font-mono text-editor-text";
+            keyCell.textContent = key;
+            row.appendChild(keyCell);
+
+            const valueCell = document.createElement("td");
+            valueCell.className = "px-3 py-1.5";
+            const input = document.createElement("input");
+            input.type = "text";
+            input.value = latinMapping.effective[key] ?? "";
+            input.dataset.latinKey = key;
+            input.className =
+              "w-full bg-editor-bg text-editor-text border rounded px-2 py-1 text-sm font-mono";
+            valueCell.appendChild(input);
+            row.appendChild(valueCell);
+
+            const resetCell = document.createElement("td");
+            resetCell.className = "px-3 py-1.5 text-center";
+            row.appendChild(resetCell);
+
+            this.latinMappingTableBody.appendChild(row);
+            // Reuses the same per-row update logic the live "input"
+            // listener uses, so the initial render and every
+            // subsequent edit stay visually consistent.
+            this.refreshLatinMappingRow(input, key);
+          }
+        }
+
+        // Updates one row's input border, reset button, and tooltip to
+        // match whether `key` currently has an override - shared by the
+        // initial render and the live "input" listener (which calls
+        // this instead of a full re-render so the input the user is
+        // typing in never loses focus).
+        refreshLatinMappingRow(input, key) {
+          const overridden = latinMapping.isOverridden(key);
+          input.classList.toggle("border-editor-accent", overridden);
+          input.classList.toggle("border-editor-border", !overridden);
+          input.title = Array.from(input.value)
+            .map((c) => "U+" + c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0"))
+            .join(" ");
+
+          const resetCell = input.closest("tr").lastElementChild;
+          resetCell.innerHTML = "";
+          if (overridden) {
+            const resetBtn = document.createElement("button");
+            resetBtn.textContent = "\u21ba";
+            resetBtn.title = "Reset to default";
+            resetBtn.dataset.latinResetKey = key;
+            resetBtn.className = "text-editor-text-dim hover:text-editor-text";
+            resetCell.appendChild(resetBtn);
+          }
+        }
+
+        // Full (re)render of the Keybindings table (P6-01) - mirrors
+        // `renderLatinMappingTable()`'s structure. Cheap to always
+        // fully rebuild (~16 rows, versus ~130 for the Latin table)
+        // so there's no per-row "refresh" variant here.
+        renderKeybindingsTable() {
+          if (!keybindings) return;
+          this.keybindingsTableBody.innerHTML = "";
+          for (const binding of keybindings.defaults) {
+            const row = document.createElement("tr");
+            row.className = "border-t border-editor-border";
+
+            const labelCell = document.createElement("td");
+            labelCell.className = "px-3 py-1.5 text-editor-text";
+            labelCell.textContent = binding.label;
+            row.appendChild(labelCell);
+
+            const comboCell = document.createElement("td");
+            comboCell.className = "px-3 py-1.5";
+            const recordBtn = document.createElement("button");
+            recordBtn.textContent = keybindings.comboFor(binding.id);
+            recordBtn.dataset.keybindingRecord = binding.id;
+            recordBtn.className =
+              "font-mono text-xs bg-editor-bg border rounded px-2 py-1 hover:border-editor-accent " +
+              (keybindings.isOverridden(binding.id)
+                ? "border-editor-accent text-editor-text"
+                : "border-editor-border text-editor-text");
+            comboCell.appendChild(recordBtn);
+            row.appendChild(comboCell);
+
+            const resetCell = document.createElement("td");
+            resetCell.className = "px-3 py-1.5 text-center";
+            if (keybindings.isOverridden(binding.id)) {
+              const resetBtn = document.createElement("button");
+              resetBtn.textContent = "\u21ba";
+              resetBtn.title = "Reset to default";
+              resetBtn.dataset.keybindingReset = binding.id;
+              resetBtn.className = "text-editor-text-dim hover:text-editor-text";
+              resetCell.appendChild(resetBtn);
+            }
+            row.appendChild(resetCell);
+
+            this.keybindingsTableBody.appendChild(row);
+          }
+        }
+
+        // Puts `button` into "recording" mode: the next keydown *on
+        // this button* (not the document - see the listener's own
+        // `stopPropagation` below) becomes the new combo for `id`,
+        // unless it's Escape (cancel) or a bare modifier key (ignored,
+        // recording continues - a combo needs a non-modifier key).
+        startRecordingKeybinding(button, id) {
+          const original = button.textContent;
+          button.textContent = "Press keys... (Esc to cancel)";
+          button.classList.add("border-editor-accent");
+          button.focus();
+
+          const onKeyDown = (e) => {
+            // Never let this reach the document-level shortcut
+            // dispatcher or trigger a browser default (e.g. Ctrl+S's
+            // save-page-as) while recording.
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (e.key === "Escape") {
+              cleanup();
+              this.renderKeybindingsTable();
+              return;
+            }
+
+            // A bare modifier key press (before the "real" key)
+            // reaches here too; ignore it and keep listening rather
+            // than recording "Ctrl" alone as a combo.
+            if (["Control", "Meta", "Alt", "Shift"].includes(e.key)) {
+              return;
+            }
+
+            const combo = KeybindingManager.formatEventCombo(e);
+            const conflict = keybindings.actionBoundTo(combo, id);
+            if (
+              conflict &&
+              !confirm(
+                `"${combo}" is already used by "${conflict.label}". Reassign it to this action anyway?`,
+              )
+            ) {
+              cleanup();
+              button.textContent = original;
+              button.classList.remove("border-editor-accent");
+              return;
+            }
+
+            keybindings.setOverride(id, combo);
+            cleanup();
+            this.renderKeybindingsTable();
+          };
+
+          const cleanup = () => {
+            button.removeEventListener("keydown", onKeyDown);
+          };
+
+          button.addEventListener("keydown", onKeyDown);
+        }
+
         open() {
           this.loadSettings();
           this.switchTab("font"); // Default to font tab
@@ -1903,9 +2277,13 @@
           this.tabs.fontBtn.classList.remove("active");
           this.tabs.colorBtn.classList.remove("active");
           this.tabs.editorBtn.classList.remove("active");
+          this.tabs.inputBtn.classList.remove("active");
+          this.tabs.keybindingsBtn.classList.remove("active");
           this.tabs.fontPanel.classList.remove("active");
           this.tabs.colorPanel.classList.remove("active");
           this.tabs.editorPanel.classList.remove("active");
+          this.tabs.inputPanel.classList.remove("active");
+          this.tabs.keybindingsPanel.classList.remove("active");
 
           // Add active class to selected tab and panel
           if (tabName === "font") {
@@ -1917,6 +2295,16 @@
           } else if (tabName === "editor") {
             this.tabs.editorBtn.classList.add("active");
             this.tabs.editorPanel.classList.add("active");
+          } else if (tabName === "input") {
+            this.tabs.inputBtn.classList.add("active");
+            this.tabs.inputPanel.classList.add("active");
+            // Rendered lazily - no point building ~130 table rows on
+            // every modal open if the user never visits this tab.
+            this.renderLatinMappingTable();
+          } else if (tabName === "keybindings") {
+            this.tabs.keybindingsBtn.classList.add("active");
+            this.tabs.keybindingsPanel.classList.add("active");
+            this.renderKeybindingsTable();
           }
         }
 
@@ -3489,6 +3877,271 @@
         }
       }
 
+      // Latin-to-Mongolian key mapping, with user overrides (Phase
+      // P3-03).
+      //
+      // `base` is parsed once from `config/latin.csv` and never
+      // mutated afterwards - it's the "factory default" a row's reset
+      // button reverts to. `overrides` is the subset of keys the user
+      // has changed via the settings modal's "Input" tab, persisted to
+      // localStorage. `effective` is `{ ...base, ...overrides }` -
+      // literally what the canvas keydown handler and the iOS
+      // mobile-input handler look characters up in; recomputed
+      // whenever `overrides` changes so callers never have to think
+      // about the merge themselves.
+      class LatinMappingManager {
+        static OVERRIDES_KEY = "uns-editor-latin-overrides";
+
+        constructor() {
+          this.base = {};
+          this.overrides = this.loadOverrides();
+          this.effective = {};
+        }
+
+        async loadBase() {
+          try {
+            // Cache-busting timestamp, matching the original
+            // `loadLatinMapping()` this class replaces.
+            const response = await fetch("config/latin.csv?v=" + Date.now());
+            const csvText = await response.text();
+            const lines = csvText.trim().split("\n");
+            const base = {};
+
+            // Skip header line.
+            for (let i = 1; i < lines.length; i++) {
+              const line = lines[i];
+              if (!line) continue;
+              const parts = line.split(",");
+              const key = parts[0]?.trim(); // Only trim the key.
+              const char = parts[1]; // Don't trim the character - it might be a format control.
+
+              // Comma mapping: an empty key with a third column means
+              // the key itself is a literal comma (which would
+              // otherwise be ambiguous with the CSV's own delimiter).
+              if (key === "" && parts.length >= 3 && parts[2]) {
+                base[","] = parts[2];
+              } else if (key && char !== undefined && char !== "") {
+                // Keep the exact case from CSV (a->A, A->A, n->N, N->N-with-dot, etc.)
+                base[key] = char;
+              }
+            }
+            this.base = base;
+          } catch (err) {
+            console.error("Failed to load latin.csv:", err);
+          }
+          this.recompute();
+        }
+
+        loadOverrides() {
+          try {
+            const raw = localStorage.getItem(LatinMappingManager.OVERRIDES_KEY);
+            const parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === "object" ? parsed : {};
+          } catch (e) {
+            return {};
+          }
+        }
+
+        saveOverrides() {
+          try {
+            localStorage.setItem(
+              LatinMappingManager.OVERRIDES_KEY,
+              JSON.stringify(this.overrides),
+            );
+          } catch (e) {
+            console.error("Failed to save Latin mapping overrides:", e);
+          }
+        }
+
+        recompute() {
+          this.effective = { ...this.base, ...this.overrides };
+        }
+
+        // Keys in CSV order, plus any override-only keys (shouldn't
+        // normally happen through the UI, but keeps this robust
+        // against stale/hand-edited localStorage rather than silently
+        // dropping such a row).
+        orderedKeys() {
+          const keys = Object.keys(this.base);
+          for (const k of Object.keys(this.overrides)) {
+            if (!keys.includes(k)) keys.push(k);
+          }
+          return keys;
+        }
+
+        isOverridden(key) {
+          return Object.prototype.hasOwnProperty.call(this.overrides, key);
+        }
+
+        // Setting a key back to its base value is treated the same as
+        // resetting it - no point persisting an "override" that's
+        // identical to the default.
+        setOverride(key, value) {
+          if (value === this.base[key]) {
+            delete this.overrides[key];
+          } else {
+            this.overrides[key] = value;
+          }
+          this.recompute();
+          this.saveOverrides();
+        }
+
+        resetKey(key) {
+          delete this.overrides[key];
+          this.recompute();
+          this.saveOverrides();
+        }
+
+        resetAll() {
+          this.overrides = {};
+          this.recompute();
+          this.saveOverrides();
+        }
+      }
+
+      // Module-scope instance (like `editor`/`tabManager`), created in
+      // main() once fetch()/localStorage are available.
+      let latinMapping = null;
+
+      // Configurable app-level keybindings (Phase P6-01).
+      //
+      // Only the app-level actions Rust's `list_keybindings()` enumerates
+      // are covered here - undo/redo, copy/cut/paste, typing, and arrow-
+      // key motion stay hardcoded inside `WasmEditor::handle_key_down`
+      // (see the scope note in `src/config/keybindings.rs`). `defaults`
+      // comes from Rust; `overrides` from localStorage; `effective` is
+      // the merge actually consulted by `matches()`.
+      //
+      // Combo grammar: modifier names joined by "+", final token is the
+      // key, e.g. `"Ctrl+Shift+P"` or `"F3"`. `"Ctrl"` matches
+      // `ctrlKey || metaKey` (same macOS-Cmd-as-Ctrl convention every
+      // other shortcut in this app already uses). Single-character keys
+      // compare case-insensitively (shift state is its own explicit
+      // modifier in the combo, so `"Ctrl+="` and `"Ctrl+Shift+="` are
+      // distinguishable without relying on `e.key`'s casing).
+      class KeybindingManager {
+        static OVERRIDES_KEY = "uns-editor-keybindings";
+
+        constructor() {
+          this.defaults = []; // [{ id, label, default }], in display order
+          this.overrides = this.loadOverrides(); // { id: combo }
+        }
+
+        async loadDefaults(editor) {
+          try {
+            this.defaults = JSON.parse(editor.list_keybindings());
+          } catch (e) {
+            console.error("Failed to load keybindings:", e);
+            this.defaults = [];
+          }
+        }
+
+        loadOverrides() {
+          try {
+            const raw = localStorage.getItem(KeybindingManager.OVERRIDES_KEY);
+            const parsed = raw ? JSON.parse(raw) : {};
+            return parsed && typeof parsed === "object" ? parsed : {};
+          } catch (e) {
+            return {};
+          }
+        }
+
+        saveOverrides() {
+          try {
+            localStorage.setItem(
+              KeybindingManager.OVERRIDES_KEY,
+              JSON.stringify(this.overrides),
+            );
+          } catch (e) {
+            console.error("Failed to save keybinding overrides:", e);
+          }
+        }
+
+        defaultCombo(id) {
+          return this.defaults.find((b) => b.id === id)?.default ?? "";
+        }
+
+        comboFor(id) {
+          return this.overrides[id] ?? this.defaultCombo(id);
+        }
+
+        isOverridden(id) {
+          return Object.prototype.hasOwnProperty.call(this.overrides, id);
+        }
+
+        setOverride(id, combo) {
+          if (combo === this.defaultCombo(id)) {
+            delete this.overrides[id];
+          } else {
+            this.overrides[id] = combo;
+          }
+          this.saveOverrides();
+        }
+
+        resetKey(id) {
+          delete this.overrides[id];
+          this.saveOverrides();
+        }
+
+        resetAll() {
+          this.overrides = {};
+          this.saveOverrides();
+        }
+
+        // The other action id (if any) currently bound to `combo` -
+        // used to warn about conflicts when recording a new binding.
+        // Ties resolve by registration order in the dispatch loop
+        // (first match wins), so a conflict isn't a hard error, just
+        // something worth flagging.
+        actionBoundTo(combo, excludingId) {
+          for (const b of this.defaults) {
+            if (b.id !== excludingId && this.comboFor(b.id) === combo) {
+              return b;
+            }
+          }
+          return null;
+        }
+
+        static parseCombo(combo) {
+          const parts = combo.split("+").map((p) => p.trim());
+          const key = parts[parts.length - 1];
+          const mods = parts.slice(0, -1).map((p) => p.toLowerCase());
+          return {
+            ctrl: mods.includes("ctrl"),
+            alt: mods.includes("alt"),
+            shift: mods.includes("shift"),
+            key,
+          };
+        }
+
+        // Build the canonical combo string for a live KeyboardEvent -
+        // used by the "record a shortcut" UI in the settings modal.
+        static formatEventCombo(e) {
+          const parts = [];
+          if (e.ctrlKey || e.metaKey) parts.push("Ctrl");
+          if (e.altKey) parts.push("Alt");
+          if (e.shiftKey) parts.push("Shift");
+          let key = e.key;
+          if (key === " ") key = "Space";
+          else if (key.length === 1) key = key.toUpperCase();
+          parts.push(key);
+          return parts.join("+");
+        }
+
+        matches(e, id) {
+          const parsed = KeybindingManager.parseCombo(this.comboFor(id));
+          const ctrlOk = parsed.ctrl ? e.ctrlKey || e.metaKey : !e.ctrlKey && !e.metaKey;
+          const altOk = parsed.alt ? e.altKey : !e.altKey;
+          const shiftOk = parsed.shift ? e.shiftKey : !e.shiftKey;
+          if (!ctrlOk || !altOk || !shiftOk) return false;
+          return parsed.key.length === 1
+            ? e.key.toLowerCase() === parsed.key.toLowerCase()
+            : e.key === parsed.key;
+        }
+      }
+
+      let keybindings = null;
+
       async function main() {
         try {
           // Detect mobile device first (needed throughout initialization)
@@ -3498,11 +4151,10 @@
 
           // Input mode state - starts active (true = convert Latin to Mongolian)
           let isInputModeActive = true;
-          let latinToMongolianMap = {};
           let bufferedFormatControl = null; // Buffer for U+202F or U+180E
 
           // Initialize WASM with cache-busting parameter
-          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=7" });
+          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=9" });
 
           // Setup canvas
           const { width, height } = resizeCanvas();
@@ -3593,132 +4245,65 @@
             }
           });
 
-          // Keyboard shortcuts for save/open
+          // Load configurable keybindings (Phase P6-01) - must happen
+          // before the dispatch loop below, which consults
+          // `keybindings.matches()` for every action.
+          keybindings = new KeybindingManager();
+          await keybindings.loadDefaults(editor);
+
+          // Keyboard shortcuts for save/open (Phase P6-01: data-driven
+          // dispatch over `keybindings.matches()` instead of one
+          // hardcoded `if` per shortcut, so every entry here is
+          // reconfigurable from the settings modal's Keybindings tab).
+          // `guard`, when present, must also pass - used for the two
+          // find-navigation actions, which (matching the pre-P6-01
+          // behavior) only fire while the find panel is actually open.
+          const keyActions = [
+            { id: "editor.commandPalette", run: () => commandPalette.open() },
+            { id: "editor.find", run: () => findReplacePanel.open(false) },
+            { id: "editor.findReplace", run: () => findReplacePanel.open(true) },
+            {
+              id: "editor.findNext",
+              guard: () => findReplacePanel.isOpen(),
+              run: () => findReplacePanel.next(),
+            },
+            {
+              id: "editor.findPrev",
+              guard: () => findReplacePanel.isOpen(),
+              run: () => findReplacePanel.prev(),
+            },
+            { id: "editor.zoomIn", run: () => adjustFontSize(2) },
+            { id: "editor.zoomOut", run: () => adjustFontSize(-2) },
+            { id: "editor.newTab", run: () => tabManager.createTab({ text: "" }) },
+            { id: "editor.closeTab", run: () => tabManager.closeTab(tabManager.activeId) },
+            { id: "editor.cycleTabNext", run: () => tabManager.cycleTab(1) },
+            { id: "editor.cycleTabPrev", run: () => tabManager.cycleTab(-1) },
+            { id: "editor.save", run: () => fileManager.openSaveModal() },
+            { id: "editor.open", run: () => fileManager.openFile() },
+            {
+              id: "editor.export",
+              run: () => document.getElementById("export-btn").click(),
+            },
+            { id: "editor.transliterate", run: () => translitModal.open() },
+            {
+              id: "editor.toggleInputMode",
+              run: () => document.getElementById("keyboard-btn")?.click(),
+            },
+          ];
+
           document.addEventListener("keydown", (e) => {
-            // Ctrl+Shift+P - Open command palette (Phase P1-03)
-            if (
-              (e.ctrlKey || e.metaKey) &&
-              e.shiftKey &&
-              (e.key === "p" || e.key === "P")
-            ) {
-              e.preventDefault();
-              commandPalette.open();
-              return;
-            }
-
-            // Ctrl+F / Cmd+F - Open find panel (Phase P2-03)
-            if ((e.ctrlKey || e.metaKey) && (e.key === "f" || e.key === "F")) {
-              e.preventDefault();
-              findReplacePanel.open(false);
-              return;
-            }
-
-            // Ctrl+H / Cmd+H (or Cmd+Option+F on macOS convention) - Open
-            // find panel with replace row visible.
-            if ((e.ctrlKey || e.metaKey) && (e.key === "h" || e.key === "H")) {
-              e.preventDefault();
-              findReplacePanel.open(true);
-              return;
-            }
-
-            // F3 / Shift+F3 - Next / previous match, even when focus is
-            // on the canvas rather than the find input.
-            if (e.key === "F3" && findReplacePanel.isOpen()) {
-              e.preventDefault();
-              if (e.shiftKey) {
-                findReplacePanel.prev();
-              } else {
-                findReplacePanel.next();
-              }
-              return;
-            }
-
-            // Ctrl+= / Ctrl+- (Cmd+= / Cmd+- on macOS) - Zoom font size
-            // in/out (Phase P8-04). `=` rather than `+` because that's
-            // the un-shifted key browsers themselves use for zoom.
-            if ((e.ctrlKey || e.metaKey) && (e.key === "=" || e.key === "+")) {
-              e.preventDefault();
-              adjustFontSize(2);
-              return;
-            }
-            if ((e.ctrlKey || e.metaKey) && e.key === "-") {
-              e.preventDefault();
-              adjustFontSize(-2);
-              return;
-            }
-
-            // Ctrl+N / Cmd+N - New tab (Phase P8-03). This one is
-            // reliable - unlike Ctrl+W/Ctrl+Tab below, browsers don't
-            // reserve Ctrl+N as aggressively (Chrome does use it for a
-            // new *window*, but still lets pages override it).
-            if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === "n" || e.key === "N")) {
-              e.preventDefault();
-              tabManager.createTab({ text: "" });
-              return;
-            }
-
-            // Ctrl+W / Cmd+W - Close active tab. Best-effort only: Chrome
-            // specifically refuses to let pages override closing the
-            // browser tab itself, so this will do nothing in Chrome. The
-            // × button on each tab is the reliable way to close one.
-            if ((e.ctrlKey || e.metaKey) && (e.key === "w" || e.key === "W")) {
-              e.preventDefault();
-              tabManager.closeTab(tabManager.activeId);
-              return;
-            }
-
-            // Ctrl+Tab / Ctrl+Shift+Tab - Cycle tabs. Also best-effort:
-            // browsers may intercept this for switching *browser* tabs
-            // instead of handing it to the page.
-            if (e.ctrlKey && e.key === "Tab") {
-              e.preventDefault();
-              tabManager.cycleTab(e.shiftKey ? -1 : 1);
-              return;
-            }
-
-            // Ctrl+S or Cmd+S - Open save modal
-            if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-              e.preventDefault();
-              fileManager.openSaveModal();
-            }
-
-            // Ctrl+O or Cmd+O - Open file picker
-            if ((e.ctrlKey || e.metaKey) && e.key === "o") {
-              e.preventDefault();
-              fileManager.openFile();
-            }
-
-            // Ctrl+E or Cmd+E - Export as PNG
-            if ((e.ctrlKey || e.metaKey) && e.key === "e") {
-              e.preventDefault();
-              document.getElementById("export-btn").click();
-            }
-
-            // Ctrl+T or Cmd+T - Open transliteration dialog
-            if (
-              (e.ctrlKey || e.metaKey) &&
-              !e.altKey &&
-              !e.shiftKey &&
-              (e.key === "t" || e.key === "T")
-            ) {
-              e.preventDefault();
-              translitModal.open();
-            }
-
-            // Ctrl+Alt+I - Toggle input mode
-            if (
-              (e.ctrlKey || e.metaKey) &&
-              e.altKey &&
-              (e.key === "i" || e.key === "I")
-            ) {
-              e.preventDefault();
-              const keyboardBtn = document.getElementById("keyboard-btn");
-              if (keyboardBtn) {
-                keyboardBtn.click();
+            for (const action of keyActions) {
+              if (action.guard && !action.guard()) continue;
+              if (keybindings.matches(e, action.id)) {
+                e.preventDefault();
+                action.run();
+                return;
               }
             }
 
-            // Escape - Close save modal
+            // Escape-to-close is a fixed UI convention, not a
+            // user-configurable action, so it stays outside
+            // `keyActions` above.
             if (
               e.key === "Escape" &&
               !fileManager.saveModal.classList.contains("hidden")
@@ -3751,6 +4336,10 @@
               editor ? JSON.parse(editor.get_settings_json()) : null,
             getCursor: () => editor?.get_cursor_position() ?? null,
             isReady: () => !!editor,
+            // P7-01: exposes needs_render() so the Playwright suite can
+            // assert the dirty-flag render gating is actually gating
+            // something, not just always returning true.
+            needsRender: (timestamp) => editor?.needs_render(timestamp) ?? null,
           };
 
           // Hide loading
@@ -3850,7 +4439,7 @@
                 !e.metaKey &&
                 !e.altKey
               ) {
-                const convertedChar = latinToMongolianMap[e.key];
+                const convertedChar = latinMapping.effective[e.key];
                 if (convertedChar) {
                   e.preventDefault();
 
@@ -4061,38 +4650,10 @@
             canvas.focus();
           }
 
-          // Load Latin to Mongolian character mapping
-          async function loadLatinMapping() {
-            try {
-              // Add timestamp to prevent caching
-              const response = await fetch("config/latin.csv?v=" + Date.now());
-              const csvText = await response.text();
-              const lines = csvText.trim().split("\n");
-
-              // Skip header line
-              for (let i = 1; i < lines.length; i++) {
-                const line = lines[i];
-                if (line) {
-                  const parts = line.split(",");
-                  const key = parts[0]?.trim(); // Only trim the key
-                  const char = parts[1]; // Don't trim the character - it might be a format control
-
-                  // Handle comma mapping: if key is empty and we have a third part, key is comma
-                  if (key === "" && parts.length >= 3 && parts[2]) {
-                    latinToMongolianMap[","] = parts[2];
-                  } else if (key && char !== undefined && char !== "") {
-                    // Keep the exact case from CSV (a→ᠠ, A→ᠠ, n→ᠨ, N→ᠩ, etc.)
-                    latinToMongolianMap[key] = char;
-                  }
-                }
-              }
-            } catch (err) {
-              console.error("Failed to load latin.csv:", err);
-            }
-          }
-
-          // Load the mapping
-          await loadLatinMapping();
+          // Load the Latin-to-Mongolian mapping (base CSV + any saved
+          // overrides - see `LatinMappingManager`, P3-03).
+          latinMapping = new LatinMappingManager();
+          await latinMapping.loadBase();
 
           // Function to convert text based on input mode (unused, kept for compatibility)
           function convertText(text, useMapping) {
@@ -4100,7 +4661,7 @@
 
             let result = "";
             for (let char of text) {
-              result += latinToMongolianMap[char] || char;
+              result += latinMapping.effective[char] || char;
             }
             return result;
           }
@@ -4123,7 +4684,7 @@
                 if (isInputModeActive) {
                   let convertedText = "";
                   for (let char of text) {
-                    const convertedChar = latinToMongolianMap[char] || char;
+                    const convertedChar = latinMapping.effective[char] || char;
 
                     // Check if this is a format control character that should be buffered
                     if (convertedChar === "\u202F") {
