@@ -271,6 +271,205 @@ whichever column ended up highlighted. Full suite re-run: 14/14 passed
 (8 in `word-suggestions.spec.js`, up from 7). `cargo test --lib`: 72/72
 (no Rust touched — this was a pure JS fix).
 
+## WS-09: canvas-rendered popup (2026-08-13)
+
+Patch: `patch/word-suggestions-ws09.patch`
+
+### Motivation
+
+The numbered-column popup (bug #4 in the "Bugs found during user
+testing" section above) rendered each suggestion's Mongolian word as
+ordinary DOM text under `writing-mode: vertical-lr; text-orientation:
+mixed`. The user raised a real architectural concern: this asks the
+*browser's own* text engine to shape and rotate Mongolian glyphs,
+while the main document canvas shapes 100% of its text itself (via the
+project's vendored, patched `cosmic-text` fork, which uses `harfrust` -
+a pure-Rust HarfBuzz port - for shaping and `swash` for rasterization,
+with the browser used only to `put_image_data` the resulting pixels).
+Different browsers have inconsistent (sometimes absent) support for
+shaping Mongolian text under CSS vertical writing modes, so the popup
+could visually mismatch the very document it's suggesting completions
+for. Also separately fixed by this same change: the popup's text had
+been noticeably smaller than the editor's actual font size (Tailwind
+`text-sm`/`text-xs`, ~14px/12px, versus this editor's real default of
+43px) - WS-09 fixes both at once, since the new Rust-side rendering
+reads `settings.fonts.font_size` directly rather than JS guessing a
+fixed CSS size.
+
+### Design
+
+Confirmed with the user before implementation: render the *whole*
+popup (numbers, words, and the selected/hover highlight) via canvas,
+not just the word glyphs; keep mouse hover highlighting (added
+`mousemove` hit-testing + a cheap highlight-only redraw, rather than
+dropping hover for simplicity); add a screen-reader text mirror (canvas
+has no semantic DOM content of its own); track as a new backlog item
+(WS-09) rather than folding it in untracked.
+
+Two-call flow per suggestion-list change, mirroring - and directly
+modeled on - the existing `TranslitRenderer`/`translit_render` pattern
+(`src/translit/renderer.rs`, `WasmEditor::translit_render`) that
+already proved this exact "small standalone `cosmic_text::Buffer`,
+shared `FontSystem`/`SwashCache`, blit via `ImageData`" pipeline works
+for rendering arbitrary Mongolian text outside the main document
+buffer:
+
+1. **`measure_suggestions_popup()`** - for each suggestion, builds a
+   temporary number-`Buffer` (vertical mode only, horizontal
+   orientation, small font) and word-`Buffer` (the editor's real
+   orientation/font size), shapes each, and runs one *dry*
+   `Buffer::draw` pass per buffer (draws nothing anywhere - the
+   callback just accumulates a bounding box) to measure its exact
+   pixel width/height - the same "dry pass" trick
+   `TranslitRenderer::render` already used once for centering a single
+   block of text, generalized here to N items. Feeds those measured
+   sizes into a new pure, unit-tested layout module (see below) to get
+   each item's target rectangle, caches the result (rectangles +
+   per-item glyph-origin-cancelling draw offsets - see "Why cache the
+   layout" below) on `WasmEditor`, and returns
+   `{ width, height, itemBounds }` to JS.
+2. JS resizes `#word-suggestions-canvas` to that size (DPR-aware, same
+   pattern as the main/translit canvases) and calls
+   **`render_suggestions_popup(canvas_id, selected_index, hover_index)`**,
+   which reuses the cached layout (does *not* re-measure) to draw the
+   highlight rect for whichever index is selected/hovered, then each
+   item's number + word, blitting the result via `ImageData` exactly
+   like `WasmEditor::render`/`TranslitRenderer::render` already do.
+
+New pure module `src/editor_core/suggestion_popup_layout.rs` - the
+arithmetic for arranging N pre-measured `(number_w, number_h, word_w,
+word_h)` tuples into either a horizontal row of columns (vertical
+editor mode) or a vertical stack of rows (horizontal editor mode),
+with no dependency on `cosmic-text`/WASM/a browser at all, mirroring
+this codebase's established pattern of keeping arithmetic testable
+without a browser or real fonts (`word_boundary.rs`,
+`format_control.rs`). 7 unit tests (empty list, single-item padding,
+multi-item packing/shared max-height-or-width, horizontal-mode
+word-width clipping, `Rect::contains`'s half-open bounds).
+
+**Why cache the layout instead of recomputing on every draw**: JS must
+know the popup's pixel size *before* it can resize the `<canvas>`
+element, so a single combined "measure and draw" call can't work -
+JS needs the size back first. Caching (rather than having
+`render_suggestions_popup` redo its own measurement) also guarantees
+the two calls can never visually disagree by a stray pixel from float
+rounding, and lets keyboard/mouse-driven highlight changes (arrow
+navigation, hover) call `render_suggestions_popup` again *without*
+re-measuring at all - only the actual suggestion list changing
+(`measure_suggestions_popup`) needs the full remeasure pass.
+
+**Bug found and fixed during implementation**: the first version of
+`render_suggestions_popup` used `self.suggestion_popup_cache.take()`
+(consuming the cache) without ever restoring it after a successful
+draw. This meant the *first* render after a `measure_suggestions_popup()`
+call worked, but any subsequent `render_suggestions_popup` call for
+the same list (i.e. every arrow-key press, number-key highlight
+change, or mouse hover) silently found no cache and did nothing -
+visually, the popup appeared to never move its highlight past the
+first selection. Confirmed via direct canvas pixel-color inspection in
+a Playwright script (checking the actual RGBA bytes at known column
+positions) before finding the root cause. Fixed by `.clone()`-ing the
+cache instead of `.take()`-ing it. This also caught a second, related
+mistake: after fixing the Rust source, `wasm-pack build` wasn't
+re-run before testing in the browser, so the *old* buggy `.wasm` was
+still being served - a reminder (already known from earlier sessions,
+re-learned here) that `cargo check`/`cargo test` alone never rebuild
+the actual WASM artifact the browser loads.
+
+**Colors**: the popup's background/highlight/text colors are hardcoded
+Rust `Color` constants matching this app's fixed dark UI-chrome
+Tailwind classes (`bg-editor-header` `#252526`, `bg-editor-accent`
+`#0e639c`, `hover:bg-editor-border` `#3e3e42`, `text-editor-text`
+`#cccccc`, `text-editor-text-dim` `#858585`, from `tailwind.config.js`)
+rather than reading `settings.appearance` - that setting only affects
+the *document's* own theme colors (light/dark content themes), not the
+app's surrounding UI chrome (toolbar, modals, popups), which stays a
+fixed dark theme regardless, matching how the popup already looked
+before this rewrite.
+
+**Accessibility**: `#sr-suggestions`, a new visually-hidden
+`aria-live="polite"` region (same pattern as `#sr-status`/`#sr-cursor`
+from P6-02), mirrors "Suggestion N of M selected: `<word>`. Press a
+number key, arrow keys, or Enter to choose; Escape to dismiss." -
+updated on every `render()`/navigation call, cleared on dismiss.
+
+**Test hook**: added `window.__unsTestHooks.getSuggestionsState()`
+(exposing `WordSuggestionsPopup`'s `suggestions`/`selected`/
+`itemBounds`/`isOpen()` state) since the popup's content is no longer
+DOM text Playwright can query directly - same "expose what the app
+itself already computes, not a new capability" principle the rest of
+`__unsTestHooks` follows.
+
+### Files changed
+
+- **New:** `src/editor_core/suggestion_popup_layout.rs` (pure layout
+  arithmetic, 7 unit tests).
+- Modified: `src/editor_core/mod.rs` (publish the new module).
+- Modified: `src/lib.rs`:
+  - New `suggestion_popup_cache: Option<SuggestionPopupCache>` field on
+    `WasmEditor`.
+  - New WASM methods `measure_suggestions_popup()` /
+    `render_suggestions_popup(canvas_id, selected_index, hover_index)`.
+  - New free functions (not `WasmEditor` methods, to avoid fighting the
+    borrow checker over disjoint `&mut self.state.font_system` /
+    `&mut self.state.cache` borrows): `measure_suggestion_text`,
+    `draw_suggestion_text`, `suggestion_number_font_size`.
+  - New layout constants (`SUGGESTION_CELL_PADDING_X/Y`,
+    `SUGGESTION_NUMBER_WORD_GAP`, `SUGGESTION_MAX_ROW_WIDTH`,
+    `SUGGESTION_NUMBER_LINE_HEIGHT_RATIO`).
+- Modified: `index.html`:
+  - `#word-suggestions-popup` markup: `<ul>` → `<div>` wrapping a new
+    `<canvas id="word-suggestions-canvas">`; new `#sr-suggestions`
+    live region.
+  - `WordSuggestionsPopup`: constructor sets up canvas
+    `mousedown`/`mousemove`/`mouseleave` listeners and new
+    `itemBounds`/`hoverIndex` fields; `render()` rewritten to
+    measure→resize→draw instead of building `<li>` DOM nodes; new
+    `redraw()` (highlight-only, no remeasure) used by `next()`/
+    `prev()`/hover; new `hitTest()`/`setupCanvasPointerEvents()`; new
+    `updateAccessibilityMirror()`; removed `editorFontSizeCssPx()`
+    (superseded - Rust now reads the real font size directly).
+  - `window.__unsTestHooks.getSuggestionsState()` test hook.
+  - Cache-busting bumped to `?v=12` (rebuilt several times across the
+    bug-fix round above).
+- Modified: `tests/e2e/word-suggestions.spec.js` - every test rewritten
+  to use `getSuggestionsState()` instead of querying
+  `#word-suggestions-popup`'s (now nonexistent) `<li>` children; the
+  mouse-click test computes click coordinates from `itemBounds`
+  converted back to CSS-pixel page coordinates (the inverse of
+  `position()`'s own conversion); one new test for the accessibility
+  mirror.
+
+### Verification
+
+- `cargo test --lib` - **79 passed** (7 new in
+  `suggestion_popup_layout`, rest pre-existing).
+- `cargo check --target wasm32-unknown-unknown` - clean, no warnings.
+- `wasm-pack build --release --target web` - succeeds; exports
+  confirmed (`measure_suggestions_popup`, `render_suggestions_popup`).
+- Visual verification via Playwright screenshots: vertical mode's
+  numbered columns (genuine `cosmic-text`-shaped Mongolian glyphs, not
+  CSS), arrow-key navigation moving the highlight, mouse hover showing
+  a distinct highlight color alongside keyboard selection, click
+  accepting the correct item, horizontal mode's stacked rows, number
+  keys accepting in both orientations.
+- Rough performance check (not a rigorous benchmark, just a sanity
+  check given the added shaping passes per keystroke): ~25ms for a
+  full measure+render cycle over 8 suggestions, ~25ms per
+  highlight-only `redraw()` call (10 consecutive `ArrowRight` presses
+  in ~250ms) - both comfortably under the ~100ms "feels instant"
+  threshold for interactive latency.
+- **`npx playwright test` - 15/15 passed** (9 in
+  `word-suggestions.spec.js`, up from 8; all pre-existing suite tests
+  re-run unchanged to confirm no regression).
+- **Explicit limitation, stated honestly (again)**: this sandbox has
+  headless Chromium only. This change's entire purpose is guaranteeing
+  identical rendering regardless of browser by bypassing browser text
+  shaping entirely - a design guarantee inherent to the architecture
+  (no browser-native Mongolian-shaping API is called anywhere in the
+  new code, confirmable by inspection), not something this sandbox's
+  Chromium-only test suite can empirically demonstrate cross-browser.
+
 ## Follow-ups / known limits
 
 - **WS-07 (phrase-aware suggestions) and WS-08 (mobile/touch
@@ -288,6 +487,14 @@ whichever column ended up highlighted. Full suite re-run: 14/14 passed
   no-op when nothing changed (same guarantee `render()` already relies
   on every frame), but this sandbox has no way to profile real
   browser CPU/frame timings beyond functional assertions.
+- **WS-09's colors are hardcoded**, not read from any theme/settings
+  object - correct today (the popup's UI chrome has never followed the
+  document's own appearance theme), but would need revisiting if this
+  app ever grows a "theme the UI chrome itself" feature.
+- **WS-09's performance check is a rough sanity check, not a rigorous
+  benchmark** - no baseline/before-after comparison exists, and this
+  sandbox cannot profile real browser CPU/paint timings beyond
+  functional latency assertions.
 
 ## Next phase
 

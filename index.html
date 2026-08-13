@@ -7,7 +7,7 @@
       content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
     />
     <title>unesun sambarA - Mongolian Text Editor</title>
-    <link rel="stylesheet" href="dist/output.css?v=13" />
+    <link rel="stylesheet" href="dist/output.css?v=14" />
     <link
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,400,0,0"
@@ -399,19 +399,30 @@
           / `accept_word_suggestion` / `dismiss_word_suggestions`
           (`src/lib.rs`), which share the Cyrillic<->Mongolian
           dictionary the Transliteration modal already uses.
+
+          WS-09: the suggestions themselves are drawn into
+          `#word-suggestions-canvas` by `WasmEditor::render_suggestions_popup`
+          using the same `cosmic-text`+`harfrust`+`swash` pipeline the
+          main document canvas uses - not ordinary DOM text - so
+          Mongolian glyph shaping is guaranteed identical to the
+          document regardless of the browser's own (inconsistent)
+          support for shaping Mongolian under CSS `writing-mode`. See
+          `DOC/IMPL/WORD_SUGGESTIONS_IMPL.md`'s WS-09 section.
         -->
-        <ul
+        <div
           id="word-suggestions-popup"
-          class="hidden absolute z-40 bg-editor-header border border-editor-border rounded shadow-2xl overflow-hidden"
-          style="max-width: 20rem"
-        ></ul>
+          class="hidden absolute z-40 bg-editor-header border border-editor-border rounded shadow-2xl overflow-auto"
+        >
+          <canvas id="word-suggestions-canvas"></canvas>
+        </div>
         <!--
-          Note: `WordSuggestionsPopup.render()` overrides the
-          `max-width`/`max-height` inline styles and the
-          `overflow-hidden`/`overflow-y-auto` classes above on every
-          call - the ones baked into the markup here are just the
-          horizontal-mode defaults, used before the popup ever shows.
+          Screen-reader mirror for the canvas-rendered popup above -
+          same pattern as the `#sr-status`/`#sr-cursor` live regions
+          (P6-02): a canvas has no semantic text content of its own, so
+          without this, canvas-based suggestions would be invisible to
+          assistive tech even though sighted users can see them.
         -->
+        <div id="sr-suggestions" class="sr-only" aria-live="polite"></div>
 
         <!--
           Find & Replace panel (Phase P2-03). Slides down from the top of
@@ -1237,7 +1248,7 @@
     </div>
 
     <script type="module">
-      import init, { WasmEditor } from "./pkg/uns_editor.js?v=11";
+      import init, { WasmEditor } from "./pkg/uns_editor.js?v=12";
 
       let editor = null;
       let animationId = null;
@@ -4208,31 +4219,96 @@
         constructor(editor) {
           this.editor = editor;
           this.popup = document.getElementById("word-suggestions-popup");
+          this.canvas = document.getElementById("word-suggestions-canvas");
+          this.srMirror = document.getElementById("sr-suggestions");
           this.dictionaryLoaded = false;
           this.loadPromise = null;
           this.visible = false;
           this.suggestions = [];
           this.selected = 0;
+          // WS-09: item hit-boxes from the last `measure_suggestions_popup()`
+          // call, in the same device-pixel space as `anchorX`/`anchorY`
+          // - used by the canvas's own mousedown/mousemove listeners
+          // below to figure out which suggestion a pointer event landed
+          // on, since the canvas has no per-item DOM nodes to attach
+          // listeners to individually any more.
+          this.itemBounds = [];
+          this.hoverIndex = -1;
+          this.setupCanvasPointerEvents();
+        }
+
+        // WS-09: converts a mouse event's page-relative position into
+        // the same device-pixel canvas-local space `itemBounds` is in
+        // (mirroring the inverse of `position()`'s own CSS-pixel
+        // conversion), then finds which suggestion (if any) contains
+        // that point. Returns `-1` for "none".
+        hitTest(event) {
+          const rect = this.canvas.getBoundingClientRect();
+          const dpr = window.devicePixelRatio || 1;
+          const x = (event.clientX - rect.left) * dpr;
+          const y = (event.clientY - rect.top) * dpr;
+          for (let i = 0; i < this.itemBounds.length; i++) {
+            const b = this.itemBounds[i];
+            if (x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h) {
+              return i;
+            }
+          }
+          return -1;
+        }
+
+        setupCanvasPointerEvents() {
+          // `mousedown` (not `click`) so accepting fires before the
+          // canvas's own blur handling would otherwise dismiss the
+          // popup first - same reasoning the old per-`<li>` listeners
+          // used.
+          this.canvas.addEventListener("mousedown", (e) => {
+            e.preventDefault();
+            const index = this.hitTest(e);
+            if (index !== -1) {
+              this.acceptIndex(index);
+            }
+          });
+          this.canvas.addEventListener("mousemove", (e) => {
+            const index = this.hitTest(e);
+            if (index !== this.hoverIndex) {
+              this.hoverIndex = index;
+              // Only the highlight changed, not the suggestion list
+              // itself - redraw without re-measuring (see
+              // `render_suggestions_popup`'s doc comment on why this
+              // is safe/cheap).
+              this.redraw();
+            }
+          });
+          this.canvas.addEventListener("mouseleave", () => {
+            if (this.hoverIndex !== -1) {
+              this.hoverIndex = -1;
+              this.redraw();
+            }
+          });
         }
 
         isOpen() {
           return this.visible;
         }
 
+        // Fetched fresh each time (not cached) rather than kept in sync
+        // with every settings-changing action - this is only ever read
+        // right before a render/position update, so staleness isn't a
+        // real risk, and it matches how the rest of the app (e.g.
+        // `updateCursorPosition()`) reads settings.
+        getSettings() {
+          try {
+            return JSON.parse(this.editor.get_settings_json());
+          } catch (e) {
+            return null;
+          }
+        }
+
         // Whether the editor is currently in Mongolian vertical-script
         // mode (`#vertical-btn` / `settings.editor.orientation`).
-        // `render()` and `position()` both need this - checked fresh
-        // each time rather than cached, matching how the rest of the
-        // app (e.g. `updateCursorPosition()`) reads orientation.
+        // `render()` and `position()` both need this.
         isVerticalMode() {
-          try {
-            return (
-              JSON.parse(this.editor.get_settings_json()).editor
-                .orientation === "vertical"
-            );
-          } catch (e) {
-            return false;
-          }
+          return this.getSettings()?.editor?.orientation === "vertical";
         }
 
         async ensureDictionaryLoaded() {
@@ -4320,66 +4396,71 @@
           this.show();
         }
 
+        // WS-09: measures the current suggestion list via real
+        // `cosmic-text` shaping (`measure_suggestions_popup`), resizes
+        // `#word-suggestions-canvas` to fit, then draws
+        // (`render_suggestions_popup`). Call this whenever the
+        // suggestion *list itself* changes (new word, new dictionary
+        // results) - for a highlight-only change (arrow/number
+        // navigation, mouse hover), call `redraw()` instead, which
+        // reuses the already-measured layout.
         render() {
-          const isVertical = this.isVerticalMode();
-          this.popup.classList.toggle("flex", isVertical);
-          this.popup.classList.toggle("flex-row", isVertical);
-          this.popup.classList.toggle("items-start", isVertical);
-          this.popup.style.maxWidth = isVertical ? "90vw" : "20rem";
-          this.popup.style.maxHeight = isVertical ? "none" : "60vh";
-          this.popup.classList.toggle("overflow-x-auto", isVertical);
-          this.popup.classList.toggle("overflow-y-auto", false);
-          this.popup.classList.toggle("overflow-hidden", !isVertical);
+          const dpr = window.devicePixelRatio || 1;
+          let measured;
+          try {
+            measured = this.editor.measure_suggestions_popup();
+          } catch (e) {
+            console.error("measure_suggestions_popup failed:", e);
+            this.hide();
+            return;
+          }
 
-          this.popup.innerHTML = "";
-          this.suggestions.forEach((text, i) => {
-            const li = document.createElement("li");
-            const isSelected = i === this.selected;
-            // `mousedown` (not `click`) so accepting fires before the
-            // canvas's own blur handling would otherwise dismiss the
-            // popup first.
-            li.addEventListener("mousedown", (e) => {
-              e.preventDefault();
-              this.acceptIndex(i);
-            });
+          this.itemBounds = Array.from(measured.itemBounds || []);
+          this.hoverIndex = -1;
 
-            if (isVertical) {
-              // Each suggestion gets its own column - a small,
-              // ordinary-horizontal number badge (so it reads as a
-              // digit, not rotated) above the word itself, which is
-              // still rendered top-to-bottom like the canvas's own
-              // Mongolian text (see the `text-orientation: mixed` note
-              // in the horizontal-mode branch's history - Mongolian's
-              // natural form is already vertical). The number doubles
-              // as a click target and matches the 1-8 keyboard shortcut
-              // wired up in the canvas `keydown` handler below.
-              li.className =
-                "flex flex-col items-center gap-1 px-2 py-2 cursor-pointer border-r border-editor-border last:border-r-0 " +
-                (isSelected
-                  ? "bg-editor-accent text-white"
-                  : "text-editor-text hover:bg-editor-border");
-              const numberEl = document.createElement("span");
-              numberEl.textContent = String(i + 1);
-              numberEl.className =
-                "suggestion-number text-xs font-mono leading-none " +
-                (isSelected ? "text-white" : "text-editor-text-dim");
-              const wordEl = document.createElement("span");
-              wordEl.textContent = text;
-              wordEl.style.writingMode = "vertical-lr";
-              wordEl.style.textOrientation = "mixed";
-              wordEl.className = "suggestion-word text-sm";
-              li.appendChild(numberEl);
-              li.appendChild(wordEl);
-            } else {
-              li.textContent = text;
-              li.className =
-                "px-3 py-1.5 text-sm cursor-pointer whitespace-nowrap truncate " +
-                (isSelected
-                  ? "bg-editor-accent text-white"
-                  : "text-editor-text hover:bg-editor-border");
-            }
-            this.popup.appendChild(li);
-          });
+          const cssWidth = measured.width / dpr;
+          const cssHeight = measured.height / dpr;
+          this.canvas.width = Math.max(1, Math.round(measured.width));
+          this.canvas.height = Math.max(1, Math.round(measured.height));
+          this.canvas.style.width = `${cssWidth}px`;
+          this.canvas.style.height = `${cssHeight}px`;
+
+          this.redraw();
+          this.updateAccessibilityMirror();
+        }
+
+        // Repaints the popup using whatever layout the last `render()`
+        // call measured, without re-measuring - correct and cheap for
+        // anything that only changes *which* item is highlighted
+        // (keyboard navigation, mouse hover), since none of those
+        // change the suggestion list's actual content/size.
+        redraw() {
+          try {
+            this.editor.render_suggestions_popup(
+              "word-suggestions-canvas",
+              this.selected,
+              this.hoverIndex,
+            );
+          } catch (e) {
+            console.error("render_suggestions_popup failed:", e);
+          }
+        }
+
+        // Canvas content has no semantic text of its own - mirror the
+        // current suggestion list into the visually-hidden
+        // `#sr-suggestions` live region (same pattern as
+        // `#sr-status`/`#sr-cursor`, P6-02) so screen reader users
+        // aren't left with nothing when this feature is active.
+        updateAccessibilityMirror() {
+          if (!this.srMirror) return;
+          if (this.suggestions.length === 0) {
+            this.srMirror.textContent = "";
+            return;
+          }
+          const current = this.suggestions[this.selected] ?? "";
+          this.srMirror.textContent =
+            `Suggestion ${this.selected + 1} of ${this.suggestions.length} selected: ${current}. ` +
+            "Press a number key, arrow keys, or Enter to choose; Escape to dismiss.";
         }
 
         position(anchorX, anchorY, lineAdvance) {
@@ -4429,21 +4510,25 @@
         hide() {
           this.visible = false;
           this.suggestions = [];
+          this.itemBounds = [];
+          this.hoverIndex = -1;
           this.popup.classList.add("hidden");
-          this.popup.innerHTML = "";
+          if (this.srMirror) this.srMirror.textContent = "";
         }
 
         next() {
           if (this.suggestions.length === 0) return;
           this.selected = (this.selected + 1) % this.suggestions.length;
-          this.render();
+          this.redraw();
+          this.updateAccessibilityMirror();
         }
 
         prev() {
           if (this.suggestions.length === 0) return;
           this.selected =
             (this.selected - 1 + this.suggestions.length) % this.suggestions.length;
-          this.render();
+          this.redraw();
+          this.updateAccessibilityMirror();
         }
 
         acceptIndex(index) {
@@ -4502,7 +4587,7 @@
           let bufferedFormatControl = null; // Buffer for U+202F or U+180E
 
           // Initialize WASM with cache-busting parameter
-          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=11" });
+          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=12" });
 
           // Setup canvas
           const { width, height } = resizeCanvas();
@@ -4693,6 +4778,25 @@
             // assert the dirty-flag render gating is actually gating
             // something, not just always returning true.
             needsRender: (timestamp) => editor?.needs_render(timestamp) ?? null,
+            // WS-09: the word-suggestions popup moved from DOM `<li>`
+            // elements to a `cosmic-text`-rendered `<canvas>` (see
+            // `DOC/IMPL/WORD_SUGGESTIONS_IMPL.md`'s WS-09 section), so
+            // there's no DOM text left for the Playwright suite to
+            // assert against - this hook exposes the same
+            // `WordSuggestionsPopup` state the canvas is drawn from,
+            // not a new capability (the module-scope `wordSuggestions`
+            // singleton isn't otherwise reachable from `page.evaluate()`
+            // due to ES module scoping - same reasoning as the rest of
+            // this object).
+            getSuggestionsState: () =>
+              wordSuggestions
+                ? {
+                    visible: wordSuggestions.isOpen(),
+                    suggestions: wordSuggestions.suggestions.slice(),
+                    selected: wordSuggestions.selected,
+                    itemBounds: wordSuggestions.itemBounds.slice(),
+                  }
+                : null,
           };
 
           // Hide loading

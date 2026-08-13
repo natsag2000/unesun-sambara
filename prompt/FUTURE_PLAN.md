@@ -221,7 +221,7 @@ Cyrillic↔Mongolian dictionary as the user types in either script,
 accepted via keyboard or mouse. Additive — does not replace the
 existing Transliteration modal (`Ctrl+T`).
 
-- **P9 (WS-01..WS-06)** `[x]` **XL** (sum of parts — see the plan doc's
+- **P9 (WS-01..WS-06, WS-09)** `[x]` **XL** (sum of parts — see the plan doc's
   §12 for the actual per-item S/M/L breakdown) — Done. Desktop MVP
   shipped: word-boundary/script classification, dictionary prefix
   indexing + ranking, the popup's Rust API, the JS popup class and
@@ -230,10 +230,15 @@ existing Transliteration modal (`Ctrl+T`).
   vertical-mode text orientation, popup position tracking (three
   separate sub-issues), a motion-vs-typing trigger bug, and a
   user-requested numbered multi-column layout redesign for vertical
-  mode — all fixed; see the impl log for details. `WS-07`
-  (phrase-aware suggestions) and `WS-08` (mobile/touch positioning)
-  remain deferred, exactly as scoped in the plan's §12.
-  - Impl log: [`DOC/IMPL/WORD_SUGGESTIONS_IMPL.md`](../DOC/IMPL/WORD_SUGGESTIONS_IMPL.md) · Patch: `patch/word-suggestions.patch`.
+  mode — all fixed. Then **WS-09** (added after the original
+  breakdown): replaced the popup's DOM/CSS text rendering with the same
+  `cosmic-text` canvas pipeline the main document uses, after the user
+  raised a legitimate cross-browser-consistency concern about relying
+  on the browser's own (inconsistent) Mongolian text-shaping support -
+  see the impl log for the full design. `WS-07` (phrase-aware
+  suggestions) and `WS-08` (mobile/touch positioning) remain deferred,
+  exactly as scoped in the plan's §12.
+  - Impl log: [`DOC/IMPL/WORD_SUGGESTIONS_IMPL.md`](../DOC/IMPL/WORD_SUGGESTIONS_IMPL.md) · Patches: `patch/word-suggestions.patch`, `patch/word-suggestions-arrow-nav-fix.patch`, `patch/word-suggestions-ws09.patch`.
 
 ---
 
@@ -268,6 +273,7 @@ items (`P8-01`, `P8-02`), and Phase P9's deferred `WS-07`/`WS-08`.
 10. **P6/P3-03/P7 scope: all 7 items together, or split?** — **Resolved (all together).** Same pattern as the P2 and P4 batches. One sub-decision recorded: P6-01's configurable keybindings only cover 16 app-level actions, deliberately excluding undo/redo/copy/cut/paste/typing (which stay hardcoded in Rust's `handle_key_down`).
 11. **Phase P9 (word suggestions): plan first, or build directly?** — **Resolved (plan first).** The user explicitly asked for "a separate implementation plan," not code, given the feature's size and priority — `prompt/WORD_SUGGESTIONS_PLAN.md` is the result. Three scope questions were resolved while writing it (trigger sources = both Cyrillic and Mongolian-via-Latin-mode; accept via keyboard *and* mouse; additive, doesn't replace the Transliteration modal) - recorded in that document's §2, not duplicated here. That plan's own §11 lists seven *further* open questions still needing resolution before implementation starts.
 12. **Phase P9 implementation: full desktop MVP scope, plus mid-implementation redesigns found through testing.** — **Resolved.** WS-01 through WS-06 done together in one session (WS-07 phrase-suggestions and WS-08 mobile/touch explicitly deferred, matching the plan's own markers). Four additional decisions were made *during* implementation, driven by real user testing rather than anticipated in the plan: (a) dictionary loading must be synchronous from Rust (`load_dictionary_text`), not `async` like the Transliteration modal's loader, to avoid a wasm-bindgen re-entrancy panic when typing continues during the fetch; (b) the popup must render each Mongolian suggestion vertically (`text-orientation: mixed`, not `sideways`) when the editor itself is in vertical mode; (c) `handle_key_down` now reports whether a keystroke changed text so pure cursor motion dismisses the popup instead of refreshing it, per the plan's own §7 trigger table that the first pass had missed; (d) the user requested (after seeing the working feature) that vertical mode show each suggestion in its own numbered column rather than one stacked column, selectable by clicking or pressing the matching number key — implemented as vertical-mode-only, horizontal mode unchanged. See `DOC/IMPL/WORD_SUGGESTIONS_IMPL.md` for the full bug-by-bug account.
+13. **WS-09: is browser-native CSS text-shaping for the popup's Mongolian glyphs an acceptable risk, or should it move to the same canvas pipeline the main document uses?** — **Resolved (move to canvas).** The user correctly identified that `writing-mode: vertical-lr; text-orientation: mixed` DOM rendering depends on the browser's own (inconsistent, sometimes absent) support for shaping Mongolian text, unlike the main document canvas, which shapes 100% of its own text via the project's vendored `cosmic-text`+`harfrust`+`swash` pipeline regardless of browser. Explored via a dedicated research pass (existing `TranslitRenderer` precedent) before implementing, then confirmed four sub-decisions with the user before coding: render the *whole* popup via canvas (not just word glyphs), keep mouse hover (added `mousemove` hit-testing), add a screen-reader text mirror, and track this as a new tracked item (`WS-09`) rather than an untracked side-fix. See `DOC/IMPL/WORD_SUGGESTIONS_IMPL.md`'s WS-09 section for the implementation and a bug found/fixed along the way (a cache-consumption bug that made keyboard/mouse highlight navigation silently stop working after the first render).
 
 ## Resuming after a context loss
 

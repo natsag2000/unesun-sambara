@@ -5,7 +5,8 @@ mod plugins;
 mod translit;
 
 use cosmic_text::{
-    Action, Color, Cursor, Motion, Selection, Edit,
+    Action, Attrs, Buffer, Color, Cursor, Family, FontSystem, Metrics, Motion, Selection,
+    Shaping, SwashCache, TextOrientation, Edit,
 };
 use unicode_segmentation::UnicodeSegmentation;
 use wasm_bindgen::prelude::*;
@@ -18,6 +19,7 @@ use editor_core::events::{EditorEvent, KeyInfo};
 use editor_core::format_control;
 use editor_core::history::EditKind;
 use editor_core::plugin::{PluginContext, PluginRegistry};
+use editor_core::suggestion_popup_layout::{self, ItemMetrics, LayoutConfig, PopupLayout};
 use editor_core::word_boundary::{self, Script};
 use config::settings::EditorSettings;
 use translit::renderer::TranslitRenderer;
@@ -38,6 +40,23 @@ const GUTTER_HEIGHT: i32 = 26;
 // `prompt/WORD_SUGGESTIONS_PLAN.md` §9).
 const MIN_SUGGESTION_WORD_LEN: usize = 2;
 
+// WS-09: word-suggestion popup layout constants, in the same
+// device-pixel space `settings.fonts.font_size` and
+// `get_word_suggestions_json`'s `anchorX`/`anchorY`/`lineAdvance`
+// already use (no DPR division happens until JS converts to CSS
+// pixels at the very end - see `suggestion_popup_layout`'s module doc
+// comment). Chosen to visually approximate the `px-2 py-2 gap-1`
+// Tailwind spacing the previous DOM-based popup used.
+const SUGGESTION_CELL_PADDING_X: f32 = 10.0;
+const SUGGESTION_CELL_PADDING_Y: f32 = 10.0;
+const SUGGESTION_NUMBER_WORD_GAP: f32 = 6.0;
+const SUGGESTION_MAX_ROW_WIDTH: f32 = 320.0;
+// The number badge's line height, as a fixed multiple of its own font
+// size (computed per-call from the editor's real font size - see
+// `render_suggestions_popup`'s note on why the number stays visually
+// secondary rather than matching the word's size 1:1).
+const SUGGESTION_NUMBER_LINE_HEIGHT_RATIO: f32 = 1.2;
+
 #[wasm_bindgen]
 pub struct WasmEditor {
     canvas: HtmlCanvasElement,
@@ -55,6 +74,15 @@ pub struct WasmEditor {
     is_touch_scrolling: bool,
     dictionary: Option<Dictionary>,
     translit_renderer: Option<TranslitRenderer>,
+    /// WS-09: the last layout `measure_suggestions_popup()` computed,
+    /// consumed (not recomputed) by the very next
+    /// `render_suggestions_popup()` call - see that method's doc
+    /// comment for why measuring twice would be both wasteful and a
+    /// consistency risk (JS sizes the canvas from the *measured*
+    /// layout; drawing must use those exact same rectangles, not a
+    /// freshly recomputed one that could drift by a pixel due to
+    /// float rounding).
+    suggestion_popup_cache: Option<SuggestionPopupCache>,
     /// P7-01: set by every method that changes what the main canvas
     /// should look like; cleared at the end of `render()`. Consulted by
     /// `needs_render()`, which the JS `animate()` loop calls every RAF
@@ -112,6 +140,7 @@ impl WasmEditor {
             is_touch_scrolling: false,
             dictionary: None,
             translit_renderer: None,
+            suggestion_popup_cache: None,
             dirty: true,
         })
     }
@@ -1344,6 +1373,314 @@ impl WasmEditor {
         self.state.suggestions.clear();
     }
 
+    /// WS-09: measures the popup's current suggestion list (whatever
+    /// `get_word_suggestions_json` last stored in
+    /// `self.state.suggestions.suggestions`) using real `cosmic-text`
+    /// shaping - the same shaping/rasterization pipeline the main
+    /// document canvas uses, so the popup's Mongolian glyphs are
+    /// visually identical to the document regardless of which browser
+    /// this runs in, rather than depending on the browser's own
+    /// (inconsistent, sometimes absent) support for shaping Mongolian
+    /// text under CSS `writing-mode`/`text-orientation`.
+    ///
+    /// Returns `{ width, height, itemBounds: [{x,y,w,h}, ...] }` in the
+    /// same device-pixel space as `get_word_suggestions_json`'s
+    /// `anchorX`/`anchorY`/`lineAdvance`. JS resizes the popup's
+    /// `<canvas>` to `width`/`height` (after its own DPR conversion)
+    /// and uses `itemBounds` for click/hover hit-testing - `bounds` in
+    /// each entry is stretched to the popup's full cross-axis extent
+    /// (see `suggestion_popup_layout`'s doc comments), so click/hover
+    /// targets are comfortably sized, not just the glyphs' own tight
+    /// box.
+    ///
+    /// Deliberately does *not* draw anything - `render_suggestions_popup`
+    /// (called right after, once JS has resized the canvas to this
+    /// method's reported size) consumes the layout this call caches on
+    /// `self.suggestion_popup_cache` rather than recomputing it, so the
+    /// two calls can never disagree about where anything is.
+    #[wasm_bindgen]
+    pub fn measure_suggestions_popup(&mut self) -> Result<JsValue, JsValue> {
+        let suggestions = self.state.suggestions.suggestions.clone();
+        if suggestions.is_empty() {
+            self.suggestion_popup_cache = None;
+            let obj = js_sys::Object::new();
+            js_sys::Reflect::set(&obj, &"width".into(), &0.into())?;
+            js_sys::Reflect::set(&obj, &"height".into(), &0.into())?;
+            js_sys::Reflect::set(&obj, &"itemBounds".into(), &js_sys::Array::new())?;
+            return Ok(obj.into());
+        }
+
+        let is_vertical = self.state.settings.editor.orientation == "vertical";
+        let word_font_size = self.state.settings.fonts.font_size;
+        let word_line_height = self.state.settings.fonts.line_height;
+        let number_font_size = suggestion_number_font_size(word_font_size);
+        let number_line_height = number_font_size * SUGGESTION_NUMBER_LINE_HEIGHT_RATIO;
+        let word_orientation = if is_vertical {
+            TextOrientation::VerticalLtr
+        } else {
+            TextOrientation::Horizontal
+        };
+        let font_family = self.state.settings.fonts.font_family.clone();
+
+        let font_system = &mut self.state.font_system;
+        let cache = &mut self.state.cache;
+
+        let mut metrics_list: Vec<ItemMetrics> = Vec::with_capacity(suggestions.len());
+        let mut measured: Vec<(MeasuredText, MeasuredText)> = Vec::with_capacity(suggestions.len());
+
+        for (i, word) in suggestions.iter().enumerate() {
+            let number_measured = if is_vertical {
+                measure_suggestion_text(
+                    font_system,
+                    cache,
+                    &font_family,
+                    &(i + 1).to_string(),
+                    number_font_size,
+                    number_line_height,
+                    TextOrientation::Horizontal,
+                )
+            } else {
+                MeasuredText::default()
+            };
+            let word_measured = measure_suggestion_text(
+                font_system,
+                cache,
+                &font_family,
+                word,
+                word_font_size,
+                word_line_height,
+                word_orientation,
+            );
+
+            metrics_list.push(ItemMetrics {
+                number_width: number_measured.width,
+                number_height: number_measured.height,
+                word_width: word_measured.width,
+                word_height: word_measured.height,
+            });
+            measured.push((number_measured, word_measured));
+        }
+
+        let config = LayoutConfig {
+            cell_padding_x: SUGGESTION_CELL_PADDING_X,
+            cell_padding_y: SUGGESTION_CELL_PADDING_Y,
+            number_word_gap: SUGGESTION_NUMBER_WORD_GAP,
+            max_row_width: SUGGESTION_MAX_ROW_WIDTH,
+        };
+        let layout: PopupLayout = if is_vertical {
+            suggestion_popup_layout::layout_vertical_columns(&metrics_list, &config)
+        } else {
+            suggestion_popup_layout::layout_horizontal_rows(&metrics_list, &config)
+        };
+
+        let mut cached_items = Vec::with_capacity(layout.items.len());
+        let bounds_arr = js_sys::Array::new();
+        for (item_layout, (number_measured, word_measured)) in layout.items.iter().zip(measured.iter()) {
+            // The buffer's own natural glyph origin (`min_x`/`min_y`,
+            // usually near but not exactly `0,0` - e.g. left side-bearing)
+            // needs to be cancelled out so the glyph's drawn top-left
+            // lands exactly at the layout's target rect, not offset by
+            // whatever the shaper's own internal origin happened to be.
+            let number_offset = (
+                item_layout.number.x - number_measured.min_x as f32,
+                item_layout.number.y - number_measured.min_y as f32,
+            );
+            let word_offset = (
+                item_layout.word.x - word_measured.min_x as f32,
+                item_layout.word.y - word_measured.min_y as f32,
+            );
+            cached_items.push(CachedSuggestionItem {
+                bounds: item_layout.bounds,
+                number_offset,
+                word_offset,
+            });
+
+            let bounds_obj = js_sys::Object::new();
+            js_sys::Reflect::set(&bounds_obj, &"x".into(), &(item_layout.bounds.x as f64).into())?;
+            js_sys::Reflect::set(&bounds_obj, &"y".into(), &(item_layout.bounds.y as f64).into())?;
+            js_sys::Reflect::set(&bounds_obj, &"w".into(), &(item_layout.bounds.w as f64).into())?;
+            js_sys::Reflect::set(&bounds_obj, &"h".into(), &(item_layout.bounds.h as f64).into())?;
+            bounds_arr.push(&bounds_obj);
+        }
+
+        self.suggestion_popup_cache = Some(SuggestionPopupCache {
+            items: cached_items,
+        });
+
+        let obj = js_sys::Object::new();
+        js_sys::Reflect::set(&obj, &"width".into(), &(layout.width as f64).into())?;
+        js_sys::Reflect::set(&obj, &"height".into(), &(layout.height as f64).into())?;
+        js_sys::Reflect::set(&obj, &"itemBounds".into(), &bounds_arr)?;
+        Ok(obj.into())
+    }
+
+    /// WS-09: draws the popup's current suggestion list into a
+    /// JS-supplied `<canvas>` (already resized by JS to whatever
+    /// `measure_suggestions_popup` most recently reported), reusing
+    /// that call's cached layout rather than recomputing it. `-1` for
+    /// `selected_index`/`hover_index` means "none" (wasm-bindgen has no
+    /// convenient `Option<usize>` across the JS boundary).
+    ///
+    /// Bails out (does nothing, not an error) if there's no cached
+    /// layout, or if the cached layout's item count no longer matches
+    /// the current suggestion list - the latter should never actually
+    /// happen since JS always calls `measure_suggestions_popup`
+    /// immediately before this, but a stale/mismatched draw would be a
+    /// worse failure mode than silently skipping a frame.
+    #[wasm_bindgen]
+    pub fn render_suggestions_popup(
+        &mut self,
+        canvas_id: &str,
+        selected_index: i32,
+        hover_index: i32,
+    ) -> Result<(), JsValue> {
+        // Deliberately `.clone()`, not `.take()` - selection/hover
+        // changes call this again *without* a fresh
+        // `measure_suggestions_popup()` call in between (no need to
+        // re-measure just because the highlighted item changed), so
+        // the cache must survive a successful render, not just a
+        // zero-size bail-out.
+        let Some(cache) = self.suggestion_popup_cache.clone() else {
+            return Ok(());
+        };
+        let suggestions = self.state.suggestions.suggestions.clone();
+        if suggestions.len() != cache.items.len() {
+            return Ok(());
+        }
+
+        let document = web_sys::window()
+            .ok_or("no window")?
+            .document()
+            .ok_or("no document")?;
+        let canvas = document
+            .get_element_by_id(canvas_id)
+            .ok_or("suggestions canvas not found")?
+            .dyn_into::<HtmlCanvasElement>()?;
+        let context = canvas
+            .get_context("2d")?
+            .ok_or("no 2d context on suggestions canvas")?
+            .dyn_into::<CanvasRenderingContext2d>()?;
+
+        let width = canvas.width();
+        let height = canvas.height();
+        if width == 0 || height == 0 {
+            return Ok(());
+        }
+
+        let is_vertical = self.state.settings.editor.orientation == "vertical";
+        let word_font_size = self.state.settings.fonts.font_size;
+        let word_line_height = self.state.settings.fonts.line_height;
+        let number_font_size = suggestion_number_font_size(word_font_size);
+        let number_line_height = number_font_size * SUGGESTION_NUMBER_LINE_HEIGHT_RATIO;
+        let word_orientation = if is_vertical {
+            TextOrientation::VerticalLtr
+        } else {
+            TextOrientation::Horizontal
+        };
+        let font_family = self.state.settings.fonts.font_family.clone();
+
+        // Fixed UI-chrome colors matching this popup's previous
+        // Tailwind classes (`bg-editor-header`, `bg-editor-accent`,
+        // `hover:bg-editor-border`, `text-editor-text`,
+        // `text-editor-text-dim`, `tailwind.config.js`) - this app's
+        // fixed dark UI chrome (toolbar, modals, popups) is
+        // independent of the *document's* own appearance theme
+        // (`settings.appearance`, which only affects canvas content).
+        const POPUP_BG: Color = Color::rgb(37, 37, 38);
+        const SELECTED_BG: Color = Color::rgb(14, 99, 156);
+        const HOVER_BG: Color = Color::rgb(62, 62, 66);
+        const TEXT_COLOR: Color = Color::rgb(204, 204, 204);
+        const TEXT_COLOR_DIM: Color = Color::rgb(133, 133, 133);
+        const SELECTED_TEXT_COLOR: Color = Color::rgb(255, 255, 255);
+
+        let mut pixels = vec![0u8; width as usize * height as usize * 4];
+        for pixel in pixels.chunks_exact_mut(4) {
+            pixel[0] = POPUP_BG.r();
+            pixel[1] = POPUP_BG.g();
+            pixel[2] = POPUP_BG.b();
+            pixel[3] = 255;
+        }
+
+        // Highlight rect(s) first, under the glyphs - selection wins
+        // visually over hover if they land on the same item, matching
+        // the old CSS (the selected item's own background always beat
+        // `:hover`).
+        for (i, item) in cache.items.iter().enumerate() {
+            let highlight = if i as i32 == selected_index {
+                Some(SELECTED_BG)
+            } else if i as i32 == hover_index {
+                Some(HOVER_BG)
+            } else {
+                None
+            };
+            if let Some(color) = highlight {
+                blend_rect(
+                    &mut pixels,
+                    width,
+                    height,
+                    item.bounds.x.round() as i32,
+                    item.bounds.y.round() as i32,
+                    item.bounds.w.round() as u32,
+                    item.bounds.h.round() as u32,
+                    color,
+                );
+            }
+        }
+
+        let font_system = &mut self.state.font_system;
+        let cache_swash = &mut self.state.cache;
+
+        for (i, word) in suggestions.iter().enumerate() {
+            let item = &cache.items[i];
+            let is_selected = i as i32 == selected_index;
+            let (number_color, word_color) = if is_selected {
+                (SELECTED_TEXT_COLOR, SELECTED_TEXT_COLOR)
+            } else {
+                (TEXT_COLOR_DIM, TEXT_COLOR)
+            };
+
+            if is_vertical {
+                draw_suggestion_text(
+                    font_system,
+                    cache_swash,
+                    &font_family,
+                    &(i + 1).to_string(),
+                    number_font_size,
+                    number_line_height,
+                    TextOrientation::Horizontal,
+                    item.number_offset,
+                    number_color,
+                    &mut pixels,
+                    width,
+                    height,
+                );
+            }
+            draw_suggestion_text(
+                font_system,
+                cache_swash,
+                &font_family,
+                word,
+                word_font_size,
+                word_line_height,
+                word_orientation,
+                item.word_offset,
+                word_color,
+                &mut pixels,
+                width,
+                height,
+            );
+        }
+
+        let image_data = ImageData::new_with_u8_clamped_array_and_sh(
+            wasm_bindgen::Clamped(&pixels),
+            width,
+            height,
+        )?;
+        context.put_image_data(&image_data, 0.0, 0.0)?;
+
+        Ok(())
+    }
+
     // ================= Cyrillic -> Mongolian transliteration =================
 
     /// Fetches and parses the dictionary TSV. Safe to call multiple times; the
@@ -1494,6 +1831,151 @@ impl WasmEditor {
             &canvas,
         )
     }
+}
+
+// ================= WS-09: word-suggestion popup canvas rendering =================
+//
+// Free functions (not `WasmEditor` methods) so they can be called with
+// disjoint `&mut self.state.font_system` / `&mut self.state.cache`
+// borrows from `measure_suggestions_popup`/`render_suggestions_popup`
+// without fighting the borrow checker over a second `&mut self`.
+
+/// A short piece of text's measured pixel extent, from one dry
+/// `Buffer::draw` pass (draws nothing to any canvas - the callback just
+/// accumulates bounds and is thrown away). `min_x`/`min_y` are the
+/// shaper's own natural glyph origin (rarely exactly `0,0` - e.g. left
+/// side-bearing) and are needed later to compute the offset that lands
+/// the glyph's drawn top-left exactly on a target layout rect.
+#[derive(Debug, Clone, Copy, Default)]
+struct MeasuredText {
+    width: f32,
+    height: f32,
+    min_x: i32,
+    min_y: i32,
+}
+
+/// One suggestion's cached draw geometry from the last
+/// `measure_suggestions_popup` call - see that method's doc comment for
+/// why this is cached rather than recomputed by `render_suggestions_popup`.
+#[derive(Debug, Clone, Copy)]
+struct CachedSuggestionItem {
+    bounds: suggestion_popup_layout::Rect,
+    number_offset: (f32, f32),
+    word_offset: (f32, f32),
+}
+
+#[derive(Debug, Clone)]
+struct SuggestionPopupCache {
+    items: Vec<CachedSuggestionItem>,
+}
+
+/// The number badge's own font size, proportional to but capped well
+/// below the word's real size - a `43px`-tall digit would dominate the
+/// tiny label it's attached to. Matches the same clamp the DOM-based
+/// popup used before this rewrite.
+fn suggestion_number_font_size(word_font_size: f32) -> f32 {
+    (word_font_size * 0.35).clamp(14.0, 20.0)
+}
+
+/// Runs one dry `Buffer::draw` pass over `text` to measure its pixel
+/// extent, without touching any canvas. Returns a zero-sized
+/// `MeasuredText` for an empty string (used for the number badge in
+/// horizontal mode, where there is no number).
+fn measure_suggestion_text(
+    font_system: &mut FontSystem,
+    cache: &mut SwashCache,
+    font_family: &str,
+    text: &str,
+    font_size: f32,
+    line_height: f32,
+    orientation: TextOrientation,
+) -> MeasuredText {
+    if text.is_empty() {
+        return MeasuredText::default();
+    }
+
+    let metrics = Metrics::new(font_size, line_height);
+    let mut buffer = Buffer::new(font_system, metrics);
+    // No wrap constraint - these are always short single words/digits,
+    // never a phrase (see `Dictionary::suggest`'s doc comment), so
+    // there's nothing to wrap and no reason to guess a width ahead of
+    // knowing the real one.
+    buffer.set_size(font_system, None, None);
+    buffer.set_orientation(font_system, orientation);
+    let attrs = Attrs::new().family(Family::Name(font_family));
+    buffer.set_text(font_system, text, &attrs, Shaping::Advanced, None);
+    buffer.shape_until_scroll(font_system, false);
+
+    let mut min_x = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut min_y = i32::MAX;
+    let mut max_y = i32::MIN;
+    buffer.draw(
+        font_system,
+        cache,
+        Color::rgb(0, 0, 0),
+        |x: i32, y: i32, w: u32, h: u32, _color: Color| {
+            min_x = min_x.min(x);
+            max_x = max_x.max(x + w as i32);
+            min_y = min_y.min(y);
+            max_y = max_y.max(y + h as i32);
+        },
+    );
+
+    if max_x < min_x || max_y < min_y {
+        // Nothing drawn (e.g. a font with no glyph for this text).
+        return MeasuredText::default();
+    }
+
+    MeasuredText {
+        width: (max_x - min_x) as f32,
+        height: (max_y - min_y) as f32,
+        min_x,
+        min_y,
+    }
+}
+
+/// Shapes and draws `text` into `pixels`, shifted by `offset` (computed
+/// by `measure_suggestions_popup` to cancel out the shaper's own
+/// natural glyph origin - see `MeasuredText`'s doc comment) so it lands
+/// exactly on its cached target rect.
+fn draw_suggestion_text(
+    font_system: &mut FontSystem,
+    cache: &mut SwashCache,
+    font_family: &str,
+    text: &str,
+    font_size: f32,
+    line_height: f32,
+    orientation: TextOrientation,
+    offset: (f32, f32),
+    color: Color,
+    pixels: &mut [u8],
+    width: u32,
+    height: u32,
+) {
+    if text.is_empty() {
+        return;
+    }
+
+    let metrics = Metrics::new(font_size, line_height);
+    let mut buffer = Buffer::new(font_system, metrics);
+    buffer.set_size(font_system, None, None);
+    buffer.set_orientation(font_system, orientation);
+    let attrs = Attrs::new().family(Family::Name(font_family));
+    buffer.set_text(font_system, text, &attrs, Shaping::Advanced, None);
+    buffer.shape_until_scroll(font_system, false);
+
+    let (offset_x, offset_y) = offset;
+    let offset_x = offset_x.round() as i32;
+    let offset_y = offset_y.round() as i32;
+    buffer.draw(
+        font_system,
+        cache,
+        color,
+        |x: i32, y: i32, w: u32, h: u32, glyph_color: Color| {
+            blend_rect(pixels, width, height, x + offset_x, y + offset_y, w, h, glyph_color);
+        },
+    );
 }
 
 /// Alpha-blend a filled rectangle into an RGBA8 pixel buffer, clipped to

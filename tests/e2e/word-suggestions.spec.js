@@ -15,6 +15,13 @@
 // so every test here turns input mode off first, matching the
 // convention already used in smoke.spec.js/latin-mapping.spec.js, to
 // guarantee raw Cyrillic reaches the buffer unconverted.
+//
+// WS-09: the popup's suggestions are drawn into a `cosmic-text`-rendered
+// `<canvas>` (see `DOC/IMPL/WORD_SUGGESTIONS_IMPL.md`'s WS-09 section),
+// not DOM `<li>` elements, so there's no DOM text to assert against -
+// tests use `window.__unsTestHooks.getSuggestionsState()` (exposing the
+// same `WordSuggestionsPopup` state the canvas is drawn from) instead of
+// querying `#word-suggestions-popup`'s children.
 const { test, expect } = require("@playwright/test");
 
 async function waitForReady(page) {
@@ -54,6 +61,10 @@ async function typeCyrillic(page, text) {
   }
 }
 
+function getSuggestionsState(page) {
+  return page.evaluate(() => window.__unsTestHooks.getSuggestionsState());
+}
+
 test.describe("Word suggestion popup (Phase P9)", () => {
   test("typing a Cyrillic prefix shows a Mongolian suggestion; Enter accepts it", async ({
     page,
@@ -66,12 +77,17 @@ test.describe("Word suggestion popup (Phase P9)", () => {
 
     const popup = page.locator("#word-suggestions-popup");
     await expect(popup).toBeVisible();
-    await expect(popup.locator("li")).toHaveCount(1);
-    // `li`'s own text includes the numbered-column badge (see
-    // `render()`) - `.suggestion-word` isolates just the word itself.
-    await expect(popup.locator("li").first().locator(".suggestion-word")).toHaveText(
-      "\u1820\u182d\u1820\u182f\u1835\u1822",
-    );
+    let state = await getSuggestionsState(page);
+    expect(state.suggestions).toEqual(["\u1820\u182d\u1820\u182f\u1835\u1822"]);
+    expect(state.selected).toBe(0);
+    // The canvas was actually sized/drawn into, not left at its
+    // zero-by-default markup size.
+    const canvasSize = await page.evaluate(() => {
+      const c = document.getElementById("word-suggestions-canvas");
+      return { width: c.width, height: c.height };
+    });
+    expect(canvasSize.width).toBeGreaterThan(0);
+    expect(canvasSize.height).toBeGreaterThan(0);
 
     await page.keyboard.press("Enter");
 
@@ -109,34 +125,32 @@ test.describe("Word suggestion popup (Phase P9)", () => {
 
     const popup = page.locator("#word-suggestions-popup");
     await expect(popup).toBeVisible();
-    // Vertical mode (the default - see `prepareBlankCyrillicInput`'s
-    // caller context) renders each suggestion as its own numbered
-    // column (`WordSuggestionsPopup.render()`), not a stacked list -
-    // `li.textContent` therefore includes both the number badge and
-    // the word; `.suggestion-word` isolates just the word.
-    const items = popup.locator("li");
-    const count = await items.count();
+    let state = await getSuggestionsState(page);
     // "аа" alone matches 58 single-word entries after phrase filtering
     // (verified against the real TSV) - well over SUGGESTION_LIMIT (8),
     // so this also exercises the ranking/cap logic in `Dictionary::suggest`.
-    expect(count).toBeGreaterThan(1);
-    expect(count).toBeLessThanOrEqual(8);
-
-    // First item starts selected.
-    await expect(items.nth(0)).toHaveClass(/bg-editor-accent/);
+    expect(state.suggestions.length).toBeGreaterThan(1);
+    expect(state.suggestions.length).toBeLessThanOrEqual(8);
+    expect(state.selected).toBe(0);
 
     await page.keyboard.press("ArrowDown");
-    await expect(items.nth(0)).not.toHaveClass(/bg-editor-accent/);
-    await expect(items.nth(1)).toHaveClass(/bg-editor-accent/);
+    state = await getSuggestionsState(page);
+    expect(state.selected).toBe(1);
 
     // Click a different item directly (not necessarily the selected
     // one) - accepting by mouse doesn't require it to be highlighted
-    // first.
-    const acceptedText = await items
-      .nth(count - 1)
-      .locator(".suggestion-word")
-      .textContent();
-    await items.nth(count - 1).click();
+    // first. Click the last suggestion's hit-box, computed from
+    // `itemBounds` (device-pixel space) converted back to CSS-pixel
+    // page coordinates the same way `position()` does the reverse.
+    const lastIndex = state.suggestions.length - 1;
+    const acceptedText = state.suggestions[lastIndex];
+    const bounds = state.itemBounds[lastIndex];
+    const canvasBox = await page.locator("#word-suggestions-canvas").boundingBox();
+    const dpr = await page.evaluate(() => window.devicePixelRatio || 1);
+    await page.mouse.click(
+      canvasBox.x + (bounds.x + bounds.w / 2) / dpr,
+      canvasBox.y + (bounds.y + bounds.h / 2) / dpr,
+    );
 
     await expect(popup).toBeHidden();
     await expect
@@ -151,33 +165,32 @@ test.describe("Word suggestion popup (Phase P9)", () => {
     await waitForReady(page);
     await prepareBlankCyrillicInput(page);
 
-    // Default orientation is vertical (see word-suggestions-vertical
-    // rendering) - the popup lays suggestions out as a horizontal row
-    // of numbered columns there, so Left/Right is the natural
-    // navigation axis (as opposed to horizontal mode's single-column
-    // stacked list, where Up/Down is the only navigation axis and
-    // Left/Right keeps moving the text cursor instead - covered by the
-    // "Escape dismisses" test's sibling assumptions elsewhere).
+    // Default orientation is vertical - the popup lays suggestions out
+    // as a horizontal row of numbered columns there, so Left/Right is
+    // the natural navigation axis (as opposed to horizontal mode's
+    // single-column stacked list, where Up/Down is the only navigation
+    // axis and Left/Right keeps moving the text cursor instead).
     await typeCyrillic(page, "аа");
 
     const popup = page.locator("#word-suggestions-popup");
     await expect(popup).toBeVisible();
-    const items = popup.locator("li");
-
-    await expect(items.nth(0)).toHaveClass(/bg-editor-accent/);
+    let state = await getSuggestionsState(page);
+    expect(state.selected).toBe(0);
 
     await page.keyboard.press("ArrowRight");
     await expect(popup).toBeVisible();
-    await expect(items.nth(0)).not.toHaveClass(/bg-editor-accent/);
-    await expect(items.nth(1)).toHaveClass(/bg-editor-accent/);
+    state = await getSuggestionsState(page);
+    expect(state.selected).toBe(1);
 
     await page.keyboard.press("ArrowRight");
-    await expect(items.nth(2)).toHaveClass(/bg-editor-accent/);
+    state = await getSuggestionsState(page);
+    expect(state.selected).toBe(2);
 
     await page.keyboard.press("ArrowLeft");
-    await expect(items.nth(1)).toHaveClass(/bg-editor-accent/);
+    state = await getSuggestionsState(page);
+    expect(state.selected).toBe(1);
 
-    const secondWord = await items.nth(1).locator(".suggestion-word").textContent();
+    const secondWord = state.suggestions[1];
     await page.keyboard.press("Enter");
 
     await expect(popup).toBeHidden();
@@ -195,11 +208,10 @@ test.describe("Word suggestion popup (Phase P9)", () => {
 
     const popup = page.locator("#word-suggestions-popup");
     await expect(popup).toBeVisible();
-    const items = popup.locator("li");
-    const count = await items.count();
-    expect(count).toBeGreaterThanOrEqual(3);
+    const state = await getSuggestionsState(page);
+    expect(state.suggestions.length).toBeGreaterThanOrEqual(3);
 
-    const thirdWord = await items.nth(2).locator(".suggestion-word").textContent();
+    const thirdWord = state.suggestions[2];
     await page.keyboard.press("3");
 
     await expect(popup).toBeHidden();
@@ -221,7 +233,8 @@ test.describe("Word suggestion popup (Phase P9)", () => {
     await typeCyrillic(page, "аалз");
     const popup = page.locator("#word-suggestions-popup");
     await expect(popup).toBeVisible();
-    await expect(popup.locator("li")).toHaveCount(1);
+    const state = await getSuggestionsState(page);
+    expect(state.suggestions).toHaveLength(1);
 
     await page.keyboard.press("9");
 
@@ -264,5 +277,20 @@ test.describe("Word suggestion popup (Phase P9)", () => {
 
     await page.locator("#tab-strip-new-btn").click();
     await expect(popup).toBeHidden();
+  });
+
+  test("accessibility mirror announces the current suggestion and clears on dismiss", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await waitForReady(page);
+    await prepareBlankCyrillicInput(page);
+
+    await typeCyrillic(page, "аалз");
+    const mirror = page.locator("#sr-suggestions");
+    await expect(mirror).toHaveText(/Suggestion 1 of 1 selected: \u1820\u182d\u1820\u182f\u1835\u1822/);
+
+    await page.keyboard.press("Escape");
+    await expect(mirror).toHaveText("");
   });
 });

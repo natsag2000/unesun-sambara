@@ -1,10 +1,15 @@
 # Word Suggestion Popup — Implementation Plan
 
-Status: **WS-01 through WS-06 implemented and shipped** (desktop MVP -
-see `DOC/IMPL/WORD_SUGGESTIONS_IMPL.md` for the implementation log,
-`patch/word-suggestions.patch` for the patch). `WS-07` (phrase-aware
-suggestions) and `WS-08` (mobile/touch positioning) remain deferred,
-exactly as scoped in §12 below. This is a standalone plan for a single
+Status: **WS-01 through WS-06, plus WS-09, implemented and shipped**
+(desktop MVP - see `DOC/IMPL/WORD_SUGGESTIONS_IMPL.md` for the
+implementation log, `patch/word-suggestions.patch` /
+`patch/word-suggestions-arrow-nav-fix.patch` /
+`patch/word-suggestions-ws09.patch` for the patches). `WS-09`
+(added after the original plan - see below) replaced the popup's
+DOM/CSS text rendering with the same `cosmic-text` canvas pipeline the
+main document uses, for guaranteed cross-browser Mongolian glyph
+consistency. `WS-07` (phrase-aware suggestions) and `WS-08` (mobile/touch
+positioning) remain deferred, exactly as scoped in §12 below. This is a standalone plan for a single
 feature the user identified as the most important remaining one for
 this editor, kept separate from `prompt/FUTURE_PLAN.md`'s backlog given
 its size and priority (same reasoning `prompt/PLUGIN_API.md` is its own
@@ -412,6 +417,25 @@ uses the same S/M/L/XL scale as `FUTURE_PLAN.md`.
   deferred - note the mobile hidden-input's `keydown` listener
   (Backspace/Enter) doesn't call `refresh()` at all yet, a gap to close
   when this is scheduled.
+- **WS-09** (L) `[x]` — Canvas-rendered popup: replaced the DOM/CSS
+  `writing-mode: vertical-lr; text-orientation: mixed` text rendering
+  (a browser-native-text-shaping dependency, inconsistent across
+  browsers for Mongolian) with the same `cosmic-text`+`harfrust`+`swash`
+  pipeline the main document canvas uses, mirroring the existing
+  `TranslitRenderer` pattern. Added after the original WS-01..WS-08
+  breakdown, at the user's request once they noticed the DOM-based
+  vertical-mode rendering's cross-browser risk. New pure
+  `suggestion_popup_layout.rs` module (7 unit tests); new
+  `measure_suggestions_popup()`/`render_suggestions_popup()` WASM
+  methods; `#word-suggestions-popup`'s `<ul>`/`<li>` markup replaced
+  with a `<canvas>`; JS-side hit-testing for click/hover against
+  Rust-reported item bounds; `#sr-suggestions` accessibility mirror
+  added (canvas has no semantic DOM content of its own). Also
+  incidentally fixed the popup's text being smaller than the editor's
+  real font size, since sizing now comes directly from
+  `settings.fonts.font_size` in Rust rather than a fixed JS/CSS
+  constant. See `DOC/IMPL/WORD_SUGGESTIONS_IMPL.md`'s WS-09 section for
+  the full design/bug log.
 
 ## 13. Non-goals (explicitly out of scope for this plan)
 
@@ -429,7 +453,7 @@ uses the same S/M/L/XL scale as `FUTURE_PLAN.md`.
 Same discipline as `FUTURE_PLAN.md`'s own "Resuming after a context
 loss" section: this file *is* the resumable state for this feature.
 Before writing code, follow `FUTURE_PLAN.md`'s "Per-phase workflow"
-(§27 of that file) exactly as if `WS-01..WS-08` were phase items in the
+(§27 of that file) exactly as if `WS-01..WS-09` were phase items in the
 main backlog — confirm scope (especially §8's loading strategy and
 §11's seven open questions) with the user first, track subtasks with
 the todo tool, verify locally, write an impl log at
