@@ -1,15 +1,20 @@
 # Word Suggestion Popup — Implementation Plan
 
-Status: **WS-01 through WS-06, plus WS-09, implemented and shipped**
-(desktop MVP - see `DOC/IMPL/WORD_SUGGESTIONS_IMPL.md` for the
+Status: **WS-01 through WS-06, plus WS-09, implemented and shipped;
+WS-08 partially done** (desktop MVP + canvas rendering + mobile
+trigger wiring - see `DOC/IMPL/WORD_SUGGESTIONS_IMPL.md` for the
 implementation log, `patch/word-suggestions.patch` /
 `patch/word-suggestions-arrow-nav-fix.patch` /
-`patch/word-suggestions-ws09.patch` for the patches). `WS-09`
+`patch/word-suggestions-ws09.patch` /
+`patch/word-suggestions-mobile-trigger.patch` for the patches). `WS-09`
 (added after the original plan - see below) replaced the popup's
 DOM/CSS text rendering with the same `cosmic-text` canvas pipeline the
 main document uses, for guaranteed cross-browser Mongolian glyph
-consistency. `WS-07` (phrase-aware suggestions) and `WS-08` (mobile/touch
-positioning) remain deferred, exactly as scoped in §12 below. This is a standalone plan for a single
+consistency. `WS-08` (mobile) is now partially done - the popup didn't
+trigger at all on real mobile devices, now fixed; popup *positioning*
+on a small/keyboard-covered viewport is still not addressed. `WS-07`
+(phrase-aware suggestions) remains fully deferred, exactly as scoped in
+§12 below. This is a standalone plan for a single
 feature the user identified as the most important remaining one for
 this editor, kept separate from `prompt/FUTURE_PLAN.md`'s backlog given
 its size and priority (same reasoning `prompt/PLUGIN_API.md` is its own
@@ -412,11 +417,17 @@ uses the same S/M/L/XL scale as `FUTURE_PLAN.md`.
   file's header used to carry).
 - **WS-07** (M, deferred/follow-up) — Phrase-aware suggestions (§11.1).
   Still deferred.
-- **WS-08** (M, deferred/follow-up) — Mobile/touch popup positioning
-  and trigger wiring through the `mobile-input` path (§11.4). Still
-  deferred - note the mobile hidden-input's `keydown` listener
-  (Backspace/Enter) doesn't call `refresh()` at all yet, a gap to close
-  when this is scheduled.
+- **WS-08** (M) `[~]` — **Partially done.** Trigger wiring through the
+  `mobile-input` path (§11.4) fixed: the popup didn't appear on mobile
+  *at all* (reported by the user testing on a real device) because
+  virtual keyboards drive input through `#mobile-input`'s `input`
+  event, which never called `refresh()`; the mobile `keydown` handler
+  (Backspace/Enter, plus now the same popup-navigation keys the
+  desktop canvas listener intercepts) and the popup canvas's
+  touch-tap-to-accept support were fixed/added too. **Still not done:**
+  popup *positioning* on a small screen with an on-screen keyboard
+  covering much of the viewport (§11.4's original stated concern) -
+  see `DOC/IMPL/WORD_SUGGESTIONS_IMPL.md`'s WS-08 section.
 - **WS-09** (L) `[x]` — Canvas-rendered popup: replaced the DOM/CSS
   `writing-mode: vertical-lr; text-orientation: mixed` text rendering
   (a browser-native-text-shaping dependency, inconsistent across

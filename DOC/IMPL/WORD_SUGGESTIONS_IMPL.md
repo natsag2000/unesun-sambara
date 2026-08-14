@@ -6,9 +6,10 @@ Reference: `prompt/FUTURE_PLAN.md` Phase P9; `prompt/WORD_SUGGESTIONS_PLAN.md`
 WS-08 mobile/touch positioning explicitly deferred, per the plan's own
 `(deferred/follow-up)` markers)
 Patch: `patch/word-suggestions.patch` (initial implementation); see also
-`patch/word-suggestions-arrow-nav-fix.patch` for a follow-up fix found
-through further testing after the initial commit (§"Follow-up fix"
-below).
+`patch/word-suggestions-arrow-nav-fix.patch`, `patch/word-suggestions-ws09.patch`,
+and `patch/word-suggestions-mobile-trigger.patch` for follow-up work
+found through further testing after the initial commit (see their
+respective sections below).
 
 ## Scope
 
@@ -470,18 +471,74 @@ itself already computes, not a new capability" principle the rest of
   new code, confirmable by inspection), not something this sandbox's
   Chromium-only test suite can empirically demonstrate cross-browser.
 
+## WS-08 (partial): mobile trigger wiring (2026-08-14)
+
+Patch: `patch/word-suggestions-mobile-trigger.patch`
+
+The popup never appeared at all on mobile devices, reported by the
+user testing on a real phone. Root cause: mobile virtual keyboards
+drive text entry through `#mobile-input`'s native `input` event, not
+`keydown` (unlike a physical keyboard) - and that `input` handler
+(`index.html`, both the Latin-conversion and plain-insert branches)
+never called `wordSuggestions.refresh()` at all. This was already
+flagged as a known gap earlier in this log ("Mobile hidden-input
+path's `keydown` listener... doesn't call `refresh()`") but the
+*severity* wasn't clear until actually tested on a device - it wasn't
+just Backspace/Enter missing a refresh, the entire feature was
+unreachable on mobile since ordinary typing never triggered it in the
+first place.
+
+Fixed:
+
+- `#mobile-input`'s `input` handler now calls `wordSuggestions.refresh()`
+  after every `insert_text()` call (both the Latin-mapped and
+  plain-Cyrillic branches) - this alone is what makes the popup appear
+  on mobile at all.
+- `#mobile-input`'s `keydown` handler (previously only Backspace/Enter,
+  with no `refresh()`/`dismiss()` call either) now: (a) intercepts the
+  same popup-navigation keys the desktop canvas listener does
+  (Escape/arrows/Tab/Enter-accept/number-accept) - relevant for a
+  physical/Bluetooth keyboard connected to a phone or tablet, which
+  *does* send real `keydown` events with usable `.key` values even
+  though the device is "mobile"; (b) for Backspace/Enter specifically,
+  uses `handle_key_down`'s boolean return the same way the desktop path
+  does, to `refresh()` or `dismiss()` accordingly instead of doing
+  neither.
+- `WordSuggestionsPopup`'s canvas (`#word-suggestions-canvas`) gained a
+  `touchstart` listener alongside its existing `mousedown` one, mirroring
+  why the *main* editor canvas already registers both
+  (`handlePointerDown`'s comment: mobile browsers don't reliably fire a
+  synthetic `mousedown` for every tap). `hitTest()` now accepts either a
+  `MouseEvent` or a `TouchEvent`, reading `.touches[0]`/`.changedTouches[0]`
+  for the latter.
+
+New `tests/e2e/word-suggestions-mobile.spec.js` (3 tests), using
+Playwright's `devices["Pixel 5"]` preset via `test.use()` so the app's
+own `isMobileDevice` user-agent sniff genuinely takes the mobile
+branch - deliberately an Android preset, not an iPhone one, since
+Playwright's iOS presets default to the `webkit` browser engine, which
+isn't installed in this sandbox (only Chromium is, per the P7-04
+session) - Android presets default to `chromium`. Tests: typing via
+the virtual-keyboard `input` path shows the correct suggestion;
+tapping the popup canvas accepts it; Backspace refreshes (not leaves
+stale) the suggestion list. All 18 tests (15 existing + 3 new) pass;
+`cargo test --lib` unaffected (79/79, no Rust touched - pure JS fix).
+
+Labeled "partial" (not a full close-out of WS-08) because popup
+*positioning* on a small screen with an on-screen keyboard covering
+much of the viewport (§11.4's original concern) is not addressed here
+- only the "does it trigger and can you interact with it at all" gap,
+which was the more fundamental problem the user actually hit.
+
 ## Follow-ups / known limits
 
-- **WS-07 (phrase-aware suggestions) and WS-08 (mobile/touch
-  positioning) remain deferred**, exactly as scoped in the plan's §12.
+- **WS-07 (phrase-aware suggestions) remain deferred**, exactly as
+  scoped in the plan's §12. WS-08 is now partially addressed (trigger
+  wiring - see above); popup positioning on small/keyboard-covered
+  viewports is still not addressed.
 - **Numbered multi-column layout is vertical-mode only**, per explicit
   user confirmation — horizontal mode's suggestion list is unchanged
   from the original stacked single-column design.
-- **Mobile hidden-input path's `keydown` listener** (Backspace/Enter
-  only) doesn't call `wordSuggestions.refresh()` at all — a pre-existing
-  gap from WS-04's original implementation, not something introduced
-  by this session's bug fixes, and out of scope until WS-08 is
-  scheduled.
 - **No before/after performance measurement** for the `shape_as_needed()`
   call added to `get_word_suggestions_json()` — it's documented as a
   no-op when nothing changed (same guarantee `render()` already relies

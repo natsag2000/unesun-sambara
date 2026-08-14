@@ -4237,16 +4237,21 @@
           this.setupCanvasPointerEvents();
         }
 
-        // WS-09: converts a mouse event's page-relative position into
-        // the same device-pixel canvas-local space `itemBounds` is in
-        // (mirroring the inverse of `position()`'s own CSS-pixel
+        // WS-09: converts a mouse/touch event's page-relative position
+        // into the same device-pixel canvas-local space `itemBounds` is
+        // in (mirroring the inverse of `position()`'s own CSS-pixel
         // conversion), then finds which suggestion (if any) contains
-        // that point. Returns `-1` for "none".
+        // that point. Returns `-1` for "none". Accepts either a
+        // `MouseEvent` (has `clientX`/`clientY` directly) or a
+        // `TouchEvent` (WS-08: needs `.touches[0]`/`.changedTouches[0]`
+        // instead - mirrors how `handlePointerDown` et al. distinguish
+        // the two for the main editor canvas).
         hitTest(event) {
+          const point = event.touches?.[0] ?? event.changedTouches?.[0] ?? event;
           const rect = this.canvas.getBoundingClientRect();
           const dpr = window.devicePixelRatio || 1;
-          const x = (event.clientX - rect.left) * dpr;
-          const y = (event.clientY - rect.top) * dpr;
+          const x = (point.clientX - rect.left) * dpr;
+          const y = (point.clientY - rect.top) * dpr;
           for (let i = 0; i < this.itemBounds.length; i++) {
             const b = this.itemBounds[i];
             if (x >= b.x && x < b.x + b.w && y >= b.y && y < b.y + b.h) {
@@ -4285,6 +4290,24 @@
               this.redraw();
             }
           });
+          // WS-08: touch devices don't reliably fire `mousedown` for a
+          // tap on every mobile browser (unlike the main editor canvas,
+          // which explicitly registers both `mousedown` *and*
+          // `touchstart` for exactly this reason - see
+          // `handlePointerDown`) - accept directly on `touchstart`
+          // rather than relying on a synthetic mouse event that may
+          // arrive late or not at all.
+          this.canvas.addEventListener(
+            "touchstart",
+            (e) => {
+              e.preventDefault();
+              const index = this.hitTest(e);
+              if (index !== -1) {
+                this.acceptIndex(index);
+              }
+            },
+            { passive: false },
+          );
         }
 
         isOpen() {
@@ -5260,14 +5283,76 @@
                   editor.insert_text(text);
                 }
                 mobileInput.value = ""; // Clear for next input
+                // WS-08 (mobile trigger wiring): virtual keyboards drive
+                // text entry through this `input` event, not `keydown`
+                // (unlike desktop, where `handle_key_down` itself calls
+                // `refresh()`/`dismiss()` after every keystroke) - this
+                // was the one trigger site missing entirely, which is
+                // why the popup never appeared on mobile at all despite
+                // everything else about the feature already working
+                // there.
+                if (wordSuggestions) wordSuggestions.refresh();
               }
             });
 
-            // Handle backspace/delete and Enter
+            // Handle backspace/delete and Enter, plus (for a connected
+            // physical/Bluetooth keyboard, which *does* send real
+            // `keydown` events with usable `.key` values even on a
+            // touch device) the same popup-navigation keys the desktop
+            // canvas listener intercepts - see the precedence note in
+            // WORD_SUGGESTIONS_PLAN.md §9.
             mobileInput.addEventListener("keydown", (e) => {
+              if (wordSuggestions && wordSuggestions.isOpen()) {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  wordSuggestions.dismiss();
+                  return;
+                }
+                if (e.key === "ArrowDown") {
+                  e.preventDefault();
+                  wordSuggestions.next();
+                  return;
+                }
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  wordSuggestions.prev();
+                  return;
+                }
+                if (wordSuggestions.isVerticalMode()) {
+                  if (e.key === "ArrowRight") {
+                    e.preventDefault();
+                    wordSuggestions.next();
+                    return;
+                  }
+                  if (e.key === "ArrowLeft") {
+                    e.preventDefault();
+                    wordSuggestions.prev();
+                    return;
+                  }
+                }
+                if (e.key === "Tab" || e.key === "Enter") {
+                  e.preventDefault();
+                  wordSuggestions.accept();
+                  return;
+                }
+                if (/^[1-9]$/.test(e.key)) {
+                  if (wordSuggestions.acceptByNumber(Number(e.key))) {
+                    e.preventDefault();
+                    return;
+                  }
+                }
+              }
+
               if (e.key === "Backspace" || e.key === "Enter") {
                 e.preventDefault();
-                editor.handle_key_down(e);
+                const textChanged = editor.handle_key_down(e);
+                if (wordSuggestions) {
+                  if (textChanged) {
+                    wordSuggestions.refresh();
+                  } else {
+                    wordSuggestions.dismiss();
+                  }
+                }
               }
             });
 
