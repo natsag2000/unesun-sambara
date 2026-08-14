@@ -2534,6 +2534,20 @@
           this.activeId = null;
           this.timer = null;
           this.strip = document.getElementById("tab-strip");
+          // Snapshot of the random greeting text the WASM buffer was
+          // initialized with, captured before any tab creation/restore
+          // touches the buffer. Reused as the seed text for a fresh
+          // panel when the very last tab is closed, so the user isn't
+          // left staring at a totally blank editor.
+          this.startupText = this.captureStartupText();
+        }
+
+        captureStartupText() {
+          try {
+            return this.editor.get_text();
+          } catch (e) {
+            return "";
+          }
         }
 
         generateId() {
@@ -2589,6 +2603,23 @@
           if (wordSuggestions) wordSuggestions.dismiss();
         }
 
+        // Send keyboard focus to the editor surface (the real canvas on
+        // desktop, the hidden input that summons the virtual keyboard on
+        // mobile) - matches the focus-return pattern used after closing
+        // modals/panels elsewhere in the app.
+        focusEditor() {
+          const canvas = document.getElementById("editor-canvas");
+          const mobileInput = document.getElementById("mobile-input");
+          const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(
+            navigator.userAgent,
+          );
+          if (isMobileDevice) {
+            if (mobileInput) mobileInput.focus();
+          } else if (canvas) {
+            canvas.focus();
+          }
+        }
+
         // Bootstrap the very first tab from whatever the WASM editor
         // already has loaded (the random greeting) on a first-ever
         // visit, without a redundant `set_text` round trip through
@@ -2642,6 +2673,8 @@
           this.loadActiveIntoEditor();
           this.persist();
           this.render();
+          // A brand new panel should be immediately ready for typing.
+          this.focusEditor();
           return tab;
         }
 
@@ -2678,8 +2711,10 @@
           this.tabs.splice(idx, 1);
 
           if (this.tabs.length === 0) {
-            // Always keep at least one tab open.
-            this.createTab({ text: "" });
+            // Always keep at least one tab open. Seed it with the same
+            // start-up text a fresh session shows rather than leaving
+            // the user looking at a totally blank panel.
+            this.createTab({ text: this.startupText || "" });
             return;
           }
 
