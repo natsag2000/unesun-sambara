@@ -1,0 +1,26 @@
+# case	ending	harmony	rank	form
+genitive	vowel_or_diphthong	any	1	ᠶᠢᠨ
+genitive	consonant_na	masculine	1	ᠤ
+genitive	consonant_na	feminine	1	ᠦ
+genitive	consonant_other	masculine	1	ᠤᠨ
+genitive	consonant_other	feminine	1	ᠦᠨ
+accusative	consonant	any	1	ᠢ
+accusative	vowel_or_diphthong	any	1	ᠶᠢ
+dative-locative	vowel_or_soft_closed	masculine	1	ᠳᠤ
+dative-locative	vowel_or_soft_closed	masculine	2	ᠳᠤᠷ
+dative-locative	vowel_or_soft_closed	feminine	1	ᠳᠦ
+dative-locative	vowel_or_soft_closed	feminine	2	ᠳᠦᠷ
+dative-locative	hard_closed	masculine	1	ᠲᠤ
+dative-locative	hard_closed	masculine	2	ᠲᠤᠷ
+dative-locative	hard_closed	feminine	1	ᠲᠦ
+dative-locative	hard_closed	feminine	2	ᠲᠦᠷ
+ablative	any	masculine	1	ᠠᠴᠠ
+ablative	any	feminine	1	ᠡᠴᠡ
+comitative	any	masculine	1	ᠲᠠᠢ
+comitative	any	feminine	1	ᠲᠡᠢ
+comitative	any	masculine	2	ᠯᠤᠭ᠎ᠠ
+comitative	any	feminine	2	ᠯᠦᠭᠡ
+instrumental	consonant	masculine	1	ᠢᠶᠠᠷ
+instrumental	consonant	feminine	1	ᠢᠶᠡᠷ
+instrumental	vowel_or_diphthong	masculine	1	ᠪᠠᠷ
+instrumental	vowel_or_diphthong	feminine	1	ᠪᠡᠷ

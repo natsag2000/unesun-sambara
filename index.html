@@ -2534,6 +2534,20 @@
           this.activeId = null;
           this.timer = null;
           this.strip = document.getElementById("tab-strip");
+          // Snapshot of the random greeting text the WASM buffer was
+          // initialized with, captured before any tab creation/restore
+          // touches the buffer. Reused as the seed text for a fresh
+          // panel when the very last tab is closed, so the user isn't
+          // left staring at a totally blank editor.
+          this.startupText = this.captureStartupText();
+        }
+
+        captureStartupText() {
+          try {
+            return this.editor.get_text();
+          } catch (e) {
+            return "";
+          }
         }
 
         generateId() {
@@ -2589,6 +2603,23 @@
           if (wordSuggestions) wordSuggestions.dismiss();
         }
 
+        // Send keyboard focus to the editor surface (the real canvas on
+        // desktop, the hidden input that summons the virtual keyboard on
+        // mobile) - matches the focus-return pattern used after closing
+        // modals/panels elsewhere in the app.
+        focusEditor() {
+          const canvas = document.getElementById("editor-canvas");
+          const mobileInput = document.getElementById("mobile-input");
+          const isMobileDevice = /iPhone|iPad|iPod|Android/i.test(
+            navigator.userAgent,
+          );
+          if (isMobileDevice) {
+            if (mobileInput) mobileInput.focus();
+          } else if (canvas) {
+            canvas.focus();
+          }
+        }
+
         // Bootstrap the very first tab from whatever the WASM editor
         // already has loaded (the random greeting) on a first-ever
         // visit, without a redundant `set_text` round trip through
@@ -2642,6 +2673,8 @@
           this.loadActiveIntoEditor();
           this.persist();
           this.render();
+          // A brand new panel should be immediately ready for typing.
+          this.focusEditor();
           return tab;
         }
 
@@ -2678,8 +2711,10 @@
           this.tabs.splice(idx, 1);
 
           if (this.tabs.length === 0) {
-            // Always keep at least one tab open.
-            this.createTab({ text: "" });
+            // Always keep at least one tab open. Seed it with the same
+            // start-up text a fresh session shows rather than leaving
+            // the user looking at a totally blank panel.
+            this.createTab({ text: this.startupText || "" });
             return;
           }
 
@@ -4224,6 +4259,7 @@
           this.dictionaryLoaded = false;
           this.loadPromise = null;
           this.visible = false;
+          this.items = [];
           this.suggestions = [];
           this.selected = 0;
           // WS-09: item hit-boxes from the last `measure_suggestions_popup()`
@@ -4382,8 +4418,13 @@
         // WORD_SUGGESTIONS_PLAN.md §7). Safe to call liberally - it's a
         // no-op past the first call once the dictionary is loaded, and
         // hides the popup itself when there's nothing to show.
-        async refresh() {
-          if (!this.dictionaryLoaded) {
+        // `suffixRequested` is true only while Latin input has buffered an
+        // NNBSP from the suffix separator key. The buffer is deliberately
+        // not inserted until its following text is known, but Rust still
+        // needs this signal to switch an exact stem from word completion to
+        // noun-case suggestions.
+        async refresh(suffixRequested = false) {
+          if (!suffixRequested && !this.dictionaryLoaded) {
             await this.ensureDictionaryLoaded();
             if (!this.dictionaryLoaded) {
               // Load failed (e.g. network error) - nothing to show.
@@ -4400,7 +4441,7 @@
 
           let result;
           try {
-            result = this.editor.get_word_suggestions_json();
+            result = this.editor.get_word_suggestions_json(suffixRequested);
           } catch (e) {
             console.error("get_word_suggestions_json failed:", e);
             this.hide();
@@ -4412,7 +4453,15 @@
             return;
           }
 
-          this.suggestions = Array.from(result.suggestions || []);
+          this.items = Array.from(result.suggestions || []).map((item) =>
+            typeof item === "string"
+              ? { text: item, kind: "word", label: "word suggestion" }
+              : item,
+          );
+          // The renderer and the existing test hook consume a flat string
+          // list. Keep that stable while `items` carries the acceptance
+          // behavior and accessibility label for noun-case suffix rows.
+          this.suggestions = this.items.map((item) => item.text);
           this.selected = 0;
           this.render();
           this.position(result.anchorX, result.anchorY, result.lineAdvance);
@@ -4480,9 +4529,11 @@
             this.srMirror.textContent = "";
             return;
           }
-          const current = this.suggestions[this.selected] ?? "";
+          const item = this.items[this.selected];
+          const current = item?.text ?? "";
+          const label = item?.label ? ` (${item.label})` : "";
           this.srMirror.textContent =
-            `Suggestion ${this.selected + 1} of ${this.suggestions.length} selected: ${current}. ` +
+            `Suggestion ${this.selected + 1} of ${this.suggestions.length} selected: ${current}${label}. ` +
             "Press a number key, arrow keys, or Enter to choose; Escape to dismiss.";
         }
 
@@ -4532,6 +4583,7 @@
 
         hide() {
           this.visible = false;
+          this.items = [];
           this.suggestions = [];
           this.itemBounds = [];
           this.hoverIndex = -1;
@@ -4555,12 +4607,16 @@
         }
 
         acceptIndex(index) {
-          const text = this.suggestions[index];
-          if (text === undefined) return;
+          const item = this.items[index];
+          if (!item) return;
           try {
-            this.editor.accept_word_suggestion(text);
+            if (item.kind === "suffix") {
+              this.editor.accept_case_suffix(item.text);
+            } else {
+              this.editor.accept_word_suggestion(item.text);
+            }
           } catch (e) {
-            console.error("accept_word_suggestion failed:", e);
+            console.error("accepting word suggestion failed:", e);
           }
           this.hide();
         }
@@ -4999,6 +5055,7 @@
                   if (convertedChar === "\u202F") {
                     // Buffer U+202F from '-' key, don't insert yet
                     bufferedFormatControl = "\u202F";
+                    if (wordSuggestions) wordSuggestions.refresh(true);
                     return;
                   } else if (convertedChar === "\u180E") {
                     // Buffer U+180E from '_' key, don't insert yet
@@ -5251,6 +5308,7 @@
             mobileInput.addEventListener("input", (e) => {
               const text = e.target.value;
               if (text && editor) {
+                let suffixRequested = false;
                 // Convert character by character if input mode is active
                 if (isInputModeActive) {
                   let convertedText = "";
@@ -5261,6 +5319,7 @@
                     if (convertedChar === "\u202F") {
                       // Buffer U+202F from '-' key, don't insert yet
                       bufferedFormatControl = "\u202F";
+                      suffixRequested = true;
                       continue;
                     } else if (convertedChar === "\u180E") {
                       // Buffer U+180E from '_' key, don't insert yet
@@ -5291,7 +5350,7 @@
                 // why the popup never appeared on mobile at all despite
                 // everything else about the feature already working
                 // there.
-                if (wordSuggestions) wordSuggestions.refresh();
+                if (wordSuggestions) wordSuggestions.refresh(suffixRequested);
               }
             });
 

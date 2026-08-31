@@ -2,6 +2,7 @@ pub mod editor_state;
 pub mod events;
 pub mod format_control;
 pub mod history;
+pub mod noun_suffixes;
 pub mod plugin;
 pub mod suggestion_popup_layout;
 pub mod suggestions;
