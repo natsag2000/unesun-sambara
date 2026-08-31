@@ -6,6 +6,11 @@ export class WasmEditor {
     free(): void;
     [Symbol.dispose](): void;
     /**
+     * Inserts the buffered NNBSP and the validated noun-case suffix after
+     * the exact Bichig stem that triggered `get_word_suggestions_json`.
+     */
+    accept_case_suffix(text: string): void;
+    /**
      * Accepts a suggestion, replacing the word it was computed for
      * with `text`. Re-resolves nothing beyond what
      * `get_word_suggestions_json` already stored (`word_start`/
@@ -58,12 +63,13 @@ export class WasmEditor {
      * one).
      *
      * Returns `hasSuggestions: false` (never an error) if the feature
-     * is disabled in settings, the dictionary hasn't loaded yet, or
-     * the cursor isn't inside/adjacent to a word at least
-     * `MIN_SUGGESTION_WORD_LEN` characters long - all "nothing to show
-     * right now," not failure conditions.
+     * is disabled in settings, a dictionary is unavailable for ordinary
+     * word completion, or the cursor isn't inside/adjacent to a word at
+     * least `MIN_SUGGESTION_WORD_LEN` characters long - all "nothing to
+     * show right now," not failure conditions. Bichig suffix requests do
+     * not require the dictionary.
      */
-    get_word_suggestions_json(): any;
+    get_word_suggestions_json(suffix_requested: boolean): any;
     /**
      * Returns whether this keystroke actually changed the buffer text
      * (as opposed to just moving the cursor/selection, or doing
@@ -267,6 +273,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_wasmeditor_free: (a: number, b: number) => void;
+    readonly wasmeditor_accept_case_suffix: (a: number, b: number, c: number) => [number, number];
     readonly wasmeditor_accept_word_suggestion: (a: number, b: number, c: number) => [number, number];
     readonly wasmeditor_can_redo: (a: number) => number;
     readonly wasmeditor_can_undo: (a: number) => number;
@@ -277,7 +284,7 @@ export interface InitOutput {
     readonly wasmeditor_get_selected_text: (a: number) => any;
     readonly wasmeditor_get_settings_json: (a: number) => [number, number, number, number];
     readonly wasmeditor_get_text: (a: number) => [number, number];
-    readonly wasmeditor_get_word_suggestions_json: (a: number) => [number, number, number];
+    readonly wasmeditor_get_word_suggestions_json: (a: number, b: number) => [number, number, number];
     readonly wasmeditor_handle_key_down: (a: number, b: any) => [number, number, number];
     readonly wasmeditor_handle_key_up: (a: number, b: any) => void;
     readonly wasmeditor_handle_mouse_down: (a: number, b: any) => [number, number];

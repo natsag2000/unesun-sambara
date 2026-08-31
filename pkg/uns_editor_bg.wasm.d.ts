@@ -2,6 +2,7 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_wasmeditor_free: (a: number, b: number) => void;
+export const wasmeditor_accept_case_suffix: (a: number, b: number, c: number) => [number, number];
 export const wasmeditor_accept_word_suggestion: (a: number, b: number, c: number) => [number, number];
 export const wasmeditor_can_redo: (a: number) => number;
 export const wasmeditor_can_undo: (a: number) => number;
@@ -12,7 +13,7 @@ export const wasmeditor_get_default_settings_json: (a: number) => [number, numbe
 export const wasmeditor_get_selected_text: (a: number) => any;
 export const wasmeditor_get_settings_json: (a: number) => [number, number, number, number];
 export const wasmeditor_get_text: (a: number) => [number, number];
-export const wasmeditor_get_word_suggestions_json: (a: number) => [number, number, number];
+export const wasmeditor_get_word_suggestions_json: (a: number, b: number) => [number, number, number];
 export const wasmeditor_handle_key_down: (a: number, b: any) => [number, number, number];
 export const wasmeditor_handle_key_up: (a: number, b: any) => void;
 export const wasmeditor_handle_mouse_down: (a: number, b: any) => [number, number];

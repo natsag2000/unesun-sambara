@@ -19,6 +19,19 @@ export class WasmEditor {
         wasm.__wbg_wasmeditor_free(ptr, 0);
     }
     /**
+     * Inserts the buffered NNBSP and the validated noun-case suffix after
+     * the exact Bichig stem that triggered `get_word_suggestions_json`.
+     * @param {string} text
+     */
+    accept_case_suffix(text) {
+        const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmeditor_accept_case_suffix(this.__wbg_ptr, ptr0, len0);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * Accepts a suggestion, replacing the word it was computed for
      * with `text`. Re-resolves nothing beyond what
      * `get_word_suggestions_json` already stored (`word_start`/
@@ -159,14 +172,16 @@ export class WasmEditor {
      * one).
      *
      * Returns `hasSuggestions: false` (never an error) if the feature
-     * is disabled in settings, the dictionary hasn't loaded yet, or
-     * the cursor isn't inside/adjacent to a word at least
-     * `MIN_SUGGESTION_WORD_LEN` characters long - all "nothing to show
-     * right now," not failure conditions.
+     * is disabled in settings, a dictionary is unavailable for ordinary
+     * word completion, or the cursor isn't inside/adjacent to a word at
+     * least `MIN_SUGGESTION_WORD_LEN` characters long - all "nothing to
+     * show right now," not failure conditions. Bichig suffix requests do
+     * not require the dictionary.
+     * @param {boolean} suffix_requested
      * @returns {any}
      */
-    get_word_suggestions_json() {
-        const ret = wasm.wasmeditor_get_word_suggestions_json(this.__wbg_ptr);
+    get_word_suggestions_json(suffix_requested) {
+        const ret = wasm.wasmeditor_get_word_suggestions_json(this.__wbg_ptr, suffix_requested);
         if (ret[2]) {
             throw takeFromExternrefTable0(ret[1]);
         }
