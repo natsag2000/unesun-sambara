@@ -42,7 +42,11 @@ pub enum Script {
 /// word boundaries: alphabetic (any script) or a Mongolian format-control
 /// character attached to a neighboring letter.
 fn is_word_char(c: char) -> bool {
-    c.is_alphabetic() || is_format_control(c)
+    c.is_alphabetic() || is_mongolian_char(c) || is_format_control(c)
+}
+
+fn is_mongolian_char(c: char) -> bool {
+    (0x1820..=0x18FF).contains(&(c as u32)) && !is_format_control(c)
 }
 
 /// The word (if any) the cursor is currently positioned inside or at the
@@ -85,7 +89,10 @@ pub fn current_word_bounds(chars: &[char], cursor_index: usize) -> Option<(usize
 /// control characters are skipped when looking for that first
 /// character, since they carry no script information of their own).
 pub fn classify_script(word: &[char]) -> Option<Script> {
-    let first_letter = word.iter().copied().find(|c| c.is_alphabetic())?;
+    let first_letter = word
+        .iter()
+        .copied()
+        .find(|c| c.is_alphabetic() || is_mongolian_char(*c))?;
     Some(classify_char(first_letter))
 }
 
@@ -93,7 +100,7 @@ fn classify_char(c: char) -> Script {
     let cp = c as u32;
     if (0x0400..=0x04FF).contains(&cp) {
         Script::Cyrillic
-    } else if (0x1800..=0x18AF).contains(&cp) {
+    } else if (0x1800..=0x18FF).contains(&cp) {
         Script::Mongolian
     } else {
         Script::Other
@@ -180,6 +187,13 @@ mod tests {
     #[test]
     fn classify_script_identifies_mongolian() {
         let word = chars_of("\u{1820}\u{1821}");
+        assert_eq!(classify_script(&word), Some(Script::Mongolian));
+    }
+
+    #[test]
+    fn classify_script_includes_mongolian_supplement_letters() {
+        // The dictionary's Bichig spelling for "гэр" starts with U+1889.
+        let word = chars_of("\u{1889}\u{1821}\u{1837}");
         assert_eq!(classify_script(&word), Some(Script::Mongolian));
     }
 

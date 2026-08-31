@@ -61,6 +61,12 @@ async function typeCyrillic(page, text) {
   }
 }
 
+// The canvas key handler accepts any single-character key, so this also
+// drives literal Bichig input after Latin conversion is disabled.
+async function typeMongolian(page, text) {
+  await typeCyrillic(page, text);
+}
+
 function getSuggestionsState(page) {
   return page.evaluate(() => window.__unsTestHooks.getSuggestionsState());
 }
@@ -112,6 +118,65 @@ test.describe("Word suggestion popup (Phase P9)", () => {
     await expect
       .poll(() => page.evaluate(() => window.__unsTestHooks.getText().trim()))
       .toBe("аалз");
+  });
+
+  test("NNBSP after an exact Bichig noun offers case suffixes", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await waitForReady(page);
+    await prepareBlankCyrillicInput(page);
+
+    // "ном" is an exact single-word dictionary entry (ᠨᠣᠮ). It keeps
+    // ordinary dictionary completion until the user presses '-' in Latin
+    // input mode. That key buffers NNBSP rather than inserting it, which
+    // is the production path the suffix request must support.
+    await typeMongolian(page, "\u1828\u1823\u182e");
+    let state = await getSuggestionsState(page);
+    expect(state.suggestions).toContain("\u1828\u1823\u182e");
+    await page.locator("#keyboard-btn").click();
+    await page.keyboard.press("-");
+
+    const popup = page.locator("#word-suggestions-popup");
+    await expect(popup).toBeVisible();
+    state = await getSuggestionsState(page);
+    expect(state.suggestions).toContain("\u1824\u1828"); // genitive -un
+    expect(state.suggestions).toContain("\u1833\u1824"); // dative-locative -du
+    expect(state.suggestions).toContain("\u1833\u1824\u1837"); // alternate -dur
+
+    const genitiveIndex = state.suggestions.indexOf("\u1824\u1828");
+    await page.keyboard.press(String(genitiveIndex + 1));
+
+    await expect(popup).toBeHidden();
+    await expect
+      .poll(() => page.evaluate(() => window.__unsTestHooks.getText().trim()))
+      .toBe("\u1828\u1823\u182e\u202f\u1824\u1828");
+  });
+
+  test("a manually typed feminine stem gets unique suffix suggestions", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    await waitForReady(page);
+    await prepareBlankCyrillicInput(page);
+
+    // The keyboard's g/e/r mapping produces ᠭᠡᠷ, while the dictionary
+    // stores a different initial-glyph variant. Suffix harmony must use
+    // the manually typed Bichig vowels, not require dictionary equality.
+    await typeMongolian(page, "\u182d\u1821\u1837");
+    await expect
+      .poll(() => page.evaluate(() => window.__unsTestHooks.getText().trim()))
+      .toBe("\u182d\u1821\u1837");
+    await page.locator("#keyboard-btn").click();
+    await page.keyboard.press("-");
+
+    const popup = page.locator("#word-suggestions-popup");
+    await expect(popup).toBeVisible();
+    const state = await getSuggestionsState(page);
+    expect(state.suggestions).toContain("\u1826\u1828"); // genitive -ün
+    expect(state.suggestions).toContain("\u1832\u1826"); // dative-locative -tü
+    expect(state.suggestions).toContain("\u1821\u1834\u1821"); // ablative -eče
+    expect(new Set(state.suggestions).size).toBe(state.suggestions.length);
   });
 
   test("arrow keys navigate multiple suggestions; mouse click accepts", async ({ page }) => {

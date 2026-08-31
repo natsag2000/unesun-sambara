@@ -18,6 +18,7 @@ use editor_core::editor_state::EditorState;
 use editor_core::events::{EditorEvent, KeyInfo};
 use editor_core::format_control;
 use editor_core::history::EditKind;
+use editor_core::noun_suffixes;
 use editor_core::plugin::{PluginContext, PluginRegistry};
 use editor_core::suggestion_popup_layout::{self, ItemMetrics, LayoutConfig, PopupLayout};
 use editor_core::word_boundary::{self, Script};
@@ -1210,21 +1211,18 @@ impl WasmEditor {
     /// one).
     ///
     /// Returns `hasSuggestions: false` (never an error) if the feature
-    /// is disabled in settings, the dictionary hasn't loaded yet, or
-    /// the cursor isn't inside/adjacent to a word at least
-    /// `MIN_SUGGESTION_WORD_LEN` characters long - all "nothing to show
-    /// right now," not failure conditions.
+    /// is disabled in settings, a dictionary is unavailable for ordinary
+    /// word completion, or the cursor isn't inside/adjacent to a word at
+    /// least `MIN_SUGGESTION_WORD_LEN` characters long - all "nothing to
+    /// show right now," not failure conditions. Bichig suffix requests do
+    /// not require the dictionary.
     #[wasm_bindgen]
-    pub fn get_word_suggestions_json(&mut self) -> Result<JsValue, JsValue> {
+    pub fn get_word_suggestions_json(&mut self, suffix_requested: bool) -> Result<JsValue, JsValue> {
         self.state.suggestions.clear();
 
         if !self.state.settings.editor.word_suggestions_enabled {
             return Self::no_word_suggestions();
         }
-        let Some(dictionary) = &self.dictionary else {
-            return Self::no_word_suggestions();
-        };
-
         // This is called synchronously right after `handle_key_down`
         // inserts a character - *before* the next `render()` call (the
         // only other place that shapes the buffer) has a chance to run
@@ -1263,10 +1261,6 @@ impl WasmEditor {
         else {
             return Self::no_word_suggestions();
         };
-        if end_char - start_char < MIN_SUGGESTION_WORD_LEN {
-            return Self::no_word_suggestions();
-        }
-
         let word_chars = &chars[start_char..end_char];
         let Some(script) = word_boundary::classify_script(word_chars) else {
             return Self::no_word_suggestions();
@@ -1276,8 +1270,31 @@ impl WasmEditor {
         }
 
         let word: String = word_chars.iter().collect();
-        let suggestions = dictionary.suggest(&word, script);
-        if suggestions.is_empty() {
+        // Keep ordinary dictionary completion available for an exact stem.
+        // Case suggestions are an explicit second step: the JS input layer
+        // reports its pending NNBSP buffer through `suffix_requested`.
+        // NNBSP itself remains buffered until a suffix is selected or a
+        // following character arrives, preserving the existing input model.
+        let suffixes = if script == Script::Mongolian && suffix_requested {
+            noun_suffixes::suggest_case_suffixes(&word)
+                .into_iter()
+                .collect::<Vec<_>>()
+        } else {
+            Vec::new()
+        };
+        let has_exact_suffixes = !suffixes.is_empty();
+        if !has_exact_suffixes && end_char - start_char < MIN_SUGGESTION_WORD_LEN {
+            return Self::no_word_suggestions();
+        }
+        let suggestions = if suffix_requested {
+            Vec::new()
+        } else {
+            let Some(dictionary) = &self.dictionary else {
+                return Self::no_word_suggestions();
+            };
+            dictionary.suggest(&word, script)
+        };
+        if suggestions.is_empty() && suffixes.is_empty() {
             return Self::no_word_suggestions();
         }
 
@@ -1292,7 +1309,11 @@ impl WasmEditor {
         };
         self.state.suggestions.word_start = Some(Cursor::new(cursor_line, byte_index_of(start_char)));
         self.state.suggestions.word_end = Some(Cursor::new(cursor_line, byte_index_of(end_char)));
-        self.state.suggestions.suggestions = suggestions;
+        self.state.suggestions.suggestions = if has_exact_suffixes {
+            suffixes.iter().map(|suffix| suffix.form.clone()).collect()
+        } else {
+            suggestions.clone()
+        };
 
         let (buffer_x, buffer_y) = self.state.editor.cursor_position().unwrap_or((0, 0));
         let (left_padding, top_padding) = self.content_padding();
@@ -1321,8 +1342,26 @@ impl WasmEditor {
             .unwrap_or(24.0);
 
         let arr = js_sys::Array::new();
-        for s in &self.state.suggestions.suggestions {
-            arr.push(&JsValue::from_str(s));
+        if has_exact_suffixes {
+            for suffix in suffixes {
+                let item = js_sys::Object::new();
+                js_sys::Reflect::set(&item, &"text".into(), &suffix.form.into())?;
+                js_sys::Reflect::set(&item, &"kind".into(), &"suffix".into())?;
+                js_sys::Reflect::set(
+                    &item,
+                    &"label".into(),
+                    &format!("{} case suffix", suffix.case).into(),
+                )?;
+                arr.push(&item);
+            }
+        } else {
+            for suggestion in suggestions {
+                let item = js_sys::Object::new();
+                js_sys::Reflect::set(&item, &"text".into(), &suggestion.into())?;
+                js_sys::Reflect::set(&item, &"kind".into(), &"word".into())?;
+                js_sys::Reflect::set(&item, &"label".into(), &"word suggestion".into())?;
+                arr.push(&item);
+            }
         }
         let obj = js_sys::Object::new();
         js_sys::Reflect::set(&obj, &"hasSuggestions".into(), &true.into())?;
@@ -1356,6 +1395,26 @@ impl WasmEditor {
         self.state.begin_history_group(EditKind::Paste, js_sys::Date::now());
         self.state.editor.delete_range(start, end);
         let new_cursor = self.state.editor.insert_at(start, text, None);
+        self.state.flush_history_group();
+
+        self.state.editor.set_cursor(new_cursor);
+        self.state.suggestions.clear();
+        self.dispatch_event(EditorEvent::TextChanged);
+        Ok(())
+    }
+
+    /// Inserts the buffered NNBSP and the validated noun-case suffix after
+    /// the exact Bichig stem that triggered `get_word_suggestions_json`.
+    #[wasm_bindgen]
+    pub fn accept_case_suffix(&mut self, text: &str) -> Result<(), JsValue> {
+        self.dirty = true; // P7-01
+        let Some(end) = self.state.suggestions.word_end else {
+            return Ok(());
+        };
+
+        self.state.begin_history_group(EditKind::Paste, js_sys::Date::now());
+        let inserted = format!("\u{202F}{text}");
+        let new_cursor = self.state.editor.insert_at(end, &inserted, None);
         self.state.flush_history_group();
 
         self.state.editor.set_cursor(new_cursor);
