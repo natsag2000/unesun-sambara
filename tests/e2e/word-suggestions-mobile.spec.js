@@ -88,6 +88,54 @@ test.describe("Word suggestion popup on mobile (WS-08)", () => {
       .toBe("\u1820\u182d\u1820\u182f\u1835\u1822");
   });
 
+  test("accepting a noun suffix clears pending NNBSP before a space", async ({ page }) => {
+    await page.goto("/");
+    await waitForReady(page);
+    await prepareBlankCyrillicInput(page);
+
+    // Input mode is off here, so this writes the Bichig stem literally.
+    await typeCyrillicViaMobileInput(page, "\u1828\u1823\u182e"); // ном
+    // Turn conversion back on; '-' buffers NNBSP and opens suffixes.
+    await page.locator("#keyboard-btn").click();
+    await typeCyrillicViaMobileInput(page, "-");
+
+    const popup = page.locator("#word-suggestions-popup");
+    await expect(popup).toBeVisible();
+    const suffix = (await getSuggestionsState(page)).suggestions[0];
+    await page.evaluate(() => {
+      document
+        .getElementById("mobile-input")
+        .dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+        );
+    });
+    await expect(popup).toBeHidden();
+
+    // A stale mobile NNBSP buffer used to emit a second U+202F before
+    // this space, displayed by the editor as an [N] marker.
+    await typeCyrillicViaMobileInput(page, " ");
+    const text = await page.evaluate(() => window.__unsTestHooks.getText());
+    expect(text.trimEnd()).toBe("\u1828\u1823\u182e\u202f" + suffix);
+    expect([...text].filter((char) => char === "\u202f")).toHaveLength(1);
+  });
+
+  test("the on-screen suffix button opens noun suffixes without typing hyphen", async ({ page }) => {
+    await page.goto("/");
+    await waitForReady(page);
+    await prepareBlankCyrillicInput(page);
+
+    await typeCyrillicViaMobileInput(page, "\u1828\u1823\u182e"); // ном
+    await page.locator("#mobile-nnbsp-btn").click();
+
+    const popup = page.locator("#word-suggestions-popup");
+    await expect(popup).toBeVisible();
+    const state = await getSuggestionsState(page);
+    expect(state.suggestions).toContain("\u1824\u1828"); // genitive -un
+    await expect
+      .poll(() => page.evaluate(() => window.__unsTestHooks.getText().trim()))
+      .toBe("\u1828\u1823\u182e");
+  });
+
   test("Backspace after a suggestion is showing refreshes it rather than leaving it stale", async ({
     page,
   }) => {
