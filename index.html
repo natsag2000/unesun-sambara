@@ -508,6 +508,18 @@
           class="block w-full h-full cursor-text"
         ></canvas>
 
+        <!-- Mobile shortcut for the buffered NNBSP suffix separator. -->
+        <button
+          id="mobile-nnbsp-btn"
+          type="button"
+          class="fixed z-30 bottom-3 right-3 sm:hidden min-h-11 px-4 rounded-full bg-editor-accent text-white shadow-lg border border-blue-300 flex items-center gap-2 text-sm font-medium"
+          title="Suffix separator (NNBSP)"
+          aria-label="Add suffix separator and show suffix suggestions"
+        >
+          <span aria-hidden="true">|</span>
+          <span class="material-symbols-rounded inline-block rotate-90">chat</span>
+        </button>
+
         <!-- Hidden input for iOS keyboard -->
         <input
           id="mobile-input"
@@ -4609,9 +4621,19 @@
         acceptIndex(index) {
           const item = this.items[index];
           if (!item) return;
+          let showPossessives = false;
           try {
-            if (item.kind === "suffix") {
+            if (item.kind === "case") {
               this.editor.accept_case_suffix(item.text);
+              // The input layer buffered the NNBSP that initiated this
+              // suffix request. Rust just inserted that separator with the
+              // chosen suffix, so discard the stale JS buffer before the
+              // next mobile character can emit it a second time.
+              window.dispatchEvent(new Event("uns-suffix-accepted"));
+              showPossessives = true;
+            } else if (item.kind === "possessive") {
+              this.editor.accept_possessive_suffix(item.text, !!item.replaceCase);
+              window.dispatchEvent(new Event("uns-suffix-accepted"));
             } else {
               this.editor.accept_word_suggestion(item.text);
             }
@@ -4619,6 +4641,9 @@
             console.error("accepting word suggestion failed:", e);
           }
           this.hide();
+          // Selecting a noun case directly advances to the documented
+          // reflexive-possessive choices without requiring another key.
+          if (showPossessives) this.refresh(true);
         }
 
         accept() {
@@ -4664,6 +4689,9 @@
           // Input mode state - starts active (true = convert Latin to Mongolian)
           let isInputModeActive = true;
           let bufferedFormatControl = null; // Buffer for U+202F or U+180E
+          window.addEventListener("uns-suffix-accepted", () => {
+            bufferedFormatControl = null;
+          });
 
           // Initialize WASM with cache-busting parameter
           await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=12" });
@@ -4892,6 +4920,36 @@
           const canvas = document.getElementById("editor-canvas");
           const mobileInput = document.getElementById("mobile-input");
 
+          // Mirrors the Latin '-' key: keep NNBSP pending until a suffix
+          // is accepted, while immediately asking Rust for suffix choices.
+          function requestSuffixSeparator() {
+            if (!editor) return;
+            bufferedFormatControl = "\u202F";
+            if (wordSuggestions) wordSuggestions.refresh(true);
+            if (isMobileDevice) {
+              mobileInput.focus();
+            } else {
+              canvas.focus();
+            }
+          }
+
+          // Native mobile keyboards do not consistently resize the layout
+          // viewport. Track the visual viewport instead, placing the suffix
+          // shortcut immediately above whichever keyboard is currently open.
+          const mobileNnbspButton = document.getElementById("mobile-nnbsp-btn");
+          function positionMobileSuffixButton() {
+            if (!isMobileDevice || !mobileNnbspButton) return;
+            const viewport = window.visualViewport;
+            const keyboardInset = viewport
+              ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop)
+              : 0;
+            const statusHeight = keyboardInset ? 0 : document.getElementById("status")?.offsetHeight || 0;
+            mobileNnbspButton.style.bottom = `${keyboardInset + statusHeight + 12}px`;
+          }
+          positionMobileSuffixButton();
+          window.visualViewport?.addEventListener("resize", positionMobileSuffixButton);
+          window.visualViewport?.addEventListener("scroll", positionMobileSuffixButton);
+
           canvas.addEventListener("keydown", (e) => {
             // Word suggestion popup (Phase P9): while it's open, these
             // keys drive the popup instead of their usual text-editing
@@ -5054,8 +5112,7 @@
                   // Check if this is a format control character that should be buffered
                   if (convertedChar === "\u202F") {
                     // Buffer U+202F from '-' key, don't insert yet
-                    bufferedFormatControl = "\u202F";
-                    if (wordSuggestions) wordSuggestions.refresh(true);
+                    requestSuffixSeparator();
                     return;
                   } else if (convertedChar === "\u180E") {
                     // Buffer U+180E from '_' key, don't insert yet
@@ -5327,6 +5384,15 @@
                       continue;
                     }
 
+                    // Match desktop behavior: a pending format control
+                    // belongs only before a visible Mongolian character,
+                    // never before ordinary whitespace.
+                    if (convertedChar.trim() === "") {
+                      bufferedFormatControl = null;
+                      convertedText += convertedChar;
+                      continue;
+                    }
+
                     // If there's a buffered format control, add it before the current character
                     if (bufferedFormatControl) {
                       convertedText += bufferedFormatControl + convertedChar;
@@ -5580,6 +5646,8 @@
           // Mobile menu toggle
           const mobileMenuBtn = document.getElementById("mobile-menu-btn");
           const mobileMenu = document.getElementById("mobile-menu");
+
+          setupButton("mobile-nnbsp-btn", requestSuffixSeparator);
 
           mobileMenuBtn.addEventListener("click", () => {
             mobileMenu.classList.toggle("hidden");

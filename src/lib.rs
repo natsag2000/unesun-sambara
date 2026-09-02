@@ -18,7 +18,7 @@ use editor_core::editor_state::EditorState;
 use editor_core::events::{EditorEvent, KeyInfo};
 use editor_core::format_control;
 use editor_core::history::EditKind;
-use editor_core::noun_suffixes;
+use editor_core::noun_suffixes::{self, PossessiveMode};
 use editor_core::plugin::{PluginContext, PluginRegistry};
 use editor_core::suggestion_popup_layout::{self, ItemMetrics, LayoutConfig, PopupLayout};
 use editor_core::word_boundary::{self, Script};
@@ -57,6 +57,37 @@ const SUGGESTION_MAX_ROW_WIDTH: f32 = 320.0;
 // `render_suggestions_popup`'s note on why the number stays visually
 // secondary rather than matching the word's size 1:1).
 const SUGGESTION_NUMBER_LINE_HEIGHT_RATIO: f32 = 1.2;
+
+/// Converts a possibly stale byte cursor offset into a character index
+/// without slicing at that offset. `cosmic_text` normally supplies a UTF-8
+/// boundary, but a transient layout/cursor mismatch must never panic on a
+/// multi-byte Mongolian character. An offset inside a character snaps just
+/// after that character, preserving forward cursor progress.
+fn char_index_for_byte_offset(text: &str, byte_offset: usize) -> usize {
+    let byte_offset = byte_offset.min(text.len());
+    text.char_indices()
+        .take_while(|(index, _)| *index < byte_offset)
+        .count()
+}
+
+#[cfg(test)]
+mod byte_offset_tests {
+    use super::char_index_for_byte_offset;
+
+    #[test]
+    fn offset_inside_mongolian_character_never_slices_or_panics() {
+        let text = "ᠠᠬ᠎ᠠ\u{202F}ᠶᠢᠨ";
+        let ya_start = text.find('ᠶ').unwrap();
+        // U+1836 is three UTF-8 bytes. This mirrors the reported cursor
+        // offset landing inside it rather than at its start/end boundary.
+        assert_eq!(char_index_for_byte_offset(text, ya_start + 2), 6);
+    }
+
+    #[test]
+    fn offset_past_end_clamps_to_final_character_index() {
+        assert_eq!(char_index_for_byte_offset("ᠠᠬ", usize::MAX), 2);
+    }
+}
 
 #[wasm_bindgen]
 pub struct WasmEditor {
@@ -410,9 +441,7 @@ impl WasmEditor {
             buffer.lines.get(cursor_line).map(|line| line.text().to_string())
         })?;
 
-        let char_index = line_text[..cursor_byte_index.min(line_text.len())]
-            .chars()
-            .count();
+        let char_index = char_index_for_byte_offset(&line_text, cursor_byte_index);
         let chars: Vec<char> = line_text.chars().collect();
         Some((chars, char_index))
     }
@@ -1253,9 +1282,7 @@ impl WasmEditor {
         };
 
         let chars: Vec<char> = line_text.chars().collect();
-        let char_index = line_text[..cursor_byte_index.min(line_text.len())]
-            .chars()
-            .count();
+        let char_index = char_index_for_byte_offset(&line_text, cursor_byte_index);
 
         let Some((start_char, end_char)) = word_boundary::current_word_bounds(&chars, char_index)
         else {
@@ -1275,15 +1302,23 @@ impl WasmEditor {
         // reports its pending NNBSP buffer through `suffix_requested`.
         // NNBSP itself remains buffered until a suffix is selected or a
         // following character arrives, preserving the existing input model.
-        let suffixes = if script == Script::Mongolian && suffix_requested {
+        let possessives = if script == Script::Mongolian && suffix_requested {
+            noun_suffixes::suggest_reflexive_possessive(&word)
+        } else {
+            Vec::new()
+        };
+        let suffixes = if script == Script::Mongolian
+            && suffix_requested
+            && possessives.is_empty()
+        {
             noun_suffixes::suggest_case_suffixes(&word)
                 .into_iter()
                 .collect::<Vec<_>>()
         } else {
             Vec::new()
         };
-        let has_exact_suffixes = !suffixes.is_empty();
-        if !has_exact_suffixes && end_char - start_char < MIN_SUGGESTION_WORD_LEN {
+        let has_suffixes = !suffixes.is_empty() || !possessives.is_empty();
+        if !has_suffixes && end_char - start_char < MIN_SUGGESTION_WORD_LEN {
             return Self::no_word_suggestions();
         }
         let suggestions = if suffix_requested {
@@ -1294,7 +1329,7 @@ impl WasmEditor {
             };
             dictionary.suggest(&word, script)
         };
-        if suggestions.is_empty() && suffixes.is_empty() {
+        if suggestions.is_empty() && !has_suffixes {
             return Self::no_word_suggestions();
         }
 
@@ -1309,7 +1344,15 @@ impl WasmEditor {
         };
         self.state.suggestions.word_start = Some(Cursor::new(cursor_line, byte_index_of(start_char)));
         self.state.suggestions.word_end = Some(Cursor::new(cursor_line, byte_index_of(end_char)));
-        self.state.suggestions.suggestions = if has_exact_suffixes {
+        self.state.suggestions.suffix_start = possessives.first().and_then(|_| {
+            word_chars
+                .iter()
+                .rposition(|c| *c == '\u{202F}')
+                .map(|separator| Cursor::new(cursor_line, byte_index_of(start_char + separator + 1)))
+        });
+        self.state.suggestions.suggestions = if !possessives.is_empty() {
+            possessives.iter().map(|suffix| suffix.form.clone()).collect()
+        } else if !suffixes.is_empty() {
             suffixes.iter().map(|suffix| suffix.form.clone()).collect()
         } else {
             suggestions.clone()
@@ -1342,11 +1385,28 @@ impl WasmEditor {
             .unwrap_or(24.0);
 
         let arr = js_sys::Array::new();
-        if has_exact_suffixes {
+        if !possessives.is_empty() {
+            for suffix in possessives {
+                let item = js_sys::Object::new();
+                js_sys::Reflect::set(&item, &"text".into(), &suffix.form.into())?;
+                js_sys::Reflect::set(&item, &"kind".into(), &"possessive".into())?;
+                js_sys::Reflect::set(
+                    &item,
+                    &"replaceCase".into(),
+                    &(suffix.mode == PossessiveMode::ReplaceCase).into(),
+                )?;
+                js_sys::Reflect::set(
+                    &item,
+                    &"label".into(),
+                    &format!("reflexive possessive after {}", suffix.case).into(),
+                )?;
+                arr.push(&item);
+            }
+        } else if !suffixes.is_empty() {
             for suffix in suffixes {
                 let item = js_sys::Object::new();
                 js_sys::Reflect::set(&item, &"text".into(), &suffix.form.into())?;
-                js_sys::Reflect::set(&item, &"kind".into(), &"suffix".into())?;
+                js_sys::Reflect::set(&item, &"kind".into(), &"case".into())?;
                 js_sys::Reflect::set(
                     &item,
                     &"label".into(),
@@ -1418,6 +1478,38 @@ impl WasmEditor {
         self.state.flush_history_group();
 
         self.state.editor.set_cursor(new_cursor);
+        self.state.suggestions.clear();
+        self.dispatch_event(EditorEvent::TextChanged);
+        Ok(())
+    }
+
+    /// Accepts a reflexive-possessive option. Long forms append after a new
+    /// NNBSP; documented short forms replace the immediately preceding case
+    /// suffix in one undoable edit.
+    #[wasm_bindgen]
+    pub fn accept_possessive_suffix(&mut self, text: &str, replace_case: bool) -> Result<(), JsValue> {
+        self.dirty = true; // P7-01
+        let Some(end) = self.state.suggestions.word_end else {
+            return Ok(());
+        };
+        let start = if replace_case {
+            self.state.suggestions.suffix_start.unwrap_or(end)
+        } else {
+            end
+        };
+
+        self.state.begin_history_group(EditKind::Paste, js_sys::Date::now());
+        if replace_case {
+            self.state.editor.delete_range(start, end);
+            let new_cursor = self.state.editor.insert_at(start, text, None);
+            self.state.editor.set_cursor(new_cursor);
+        } else {
+            let inserted = format!("\u{202F}{text}");
+            let new_cursor = self.state.editor.insert_at(end, &inserted, None);
+            self.state.editor.set_cursor(new_cursor);
+        }
+        self.state.flush_history_group();
+
         self.state.suggestions.clear();
         self.dispatch_event(EditorEvent::TextChanged);
         Ok(())

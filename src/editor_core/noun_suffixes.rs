@@ -41,7 +41,31 @@ pub struct CaseSuffixSuggestion {
     pub form: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PossessiveMode {
+    Append,
+    ReplaceCase,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PossessiveSuffixSuggestion {
+    pub case: String,
+    pub form: String,
+    pub mode: PossessiveMode,
+}
+
+#[derive(Debug)]
+struct PossessiveRule {
+    case: String,
+    case_form: String,
+    harmony: HarmonyClass,
+    rank: u8,
+    mode: PossessiveMode,
+    form: String,
+}
+
 const CATALOG: &str = include_str!("noun_case_suffixes.tsv");
+const POSSESSIVE_CATALOG: &str = include_str!("reflexive_possessive_suffixes.tsv");
 
 fn rules() -> &'static [SuffixRule] {
     static RULES: OnceLock<Vec<SuffixRule>> = OnceLock::new();
@@ -52,6 +76,36 @@ fn rules() -> &'static [SuffixRule] {
             .filter_map(parse_rule)
             .collect()
     })
+}
+
+fn possessive_rules() -> &'static [PossessiveRule] {
+    static RULES: OnceLock<Vec<PossessiveRule>> = OnceLock::new();
+    RULES.get_or_init(|| {
+        POSSESSIVE_CATALOG
+            .lines()
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .filter_map(parse_possessive_rule)
+            .collect()
+    })
+}
+
+fn parse_possessive_rule(line: &str) -> Option<PossessiveRule> {
+    let mut fields = line.split('\t');
+    let case = fields.next()?.to_string();
+    let case_form = fields.next()?.to_string();
+    let harmony = match fields.next()? {
+        "masculine" => HarmonyClass::Masculine,
+        "feminine" => HarmonyClass::Feminine,
+        _ => return None,
+    };
+    let rank = fields.next()?.parse().ok()?;
+    let mode = match fields.next()? {
+        "append" => PossessiveMode::Append,
+        "replace_case" => PossessiveMode::ReplaceCase,
+        _ => return None,
+    };
+    let form = fields.next()?.to_string();
+    Some(PossessiveRule { case, case_form, harmony, rank, mode, form })
 }
 
 fn parse_rule(line: &str) -> Option<SuffixRule> {
@@ -161,6 +215,34 @@ pub fn suggest_case_suffixes(stem_bichig: &str) -> Vec<CaseSuffixSuggestion> {
         .collect()
 }
 
+/// Returns reflexive-possessive options after a typed `stem case` sequence.
+/// The final NNBSP is still buffered by JS and is inserted only when an
+/// append-form option is accepted.
+pub fn suggest_reflexive_possessive(word: &str) -> Vec<PossessiveSuffixSuggestion> {
+    let Some((stem, case_form)) = word.rsplit_once('\u{202F}') else {
+        return Vec::new();
+    };
+    if stem.is_empty() || case_form.is_empty() || stem.contains('\u{202F}') {
+        return Vec::new();
+    }
+    let Some(harmony) = classify_harmony(stem) else {
+        return Vec::new();
+    };
+    let mut matches: Vec<&PossessiveRule> = possessive_rules()
+        .iter()
+        .filter(|rule| rule.case_form == case_form && rule.harmony == harmony)
+        .collect();
+    matches.sort_by(|a, b| a.rank.cmp(&b.rank).then_with(|| a.case.cmp(&b.case)));
+    matches
+        .into_iter()
+        .map(|rule| PossessiveSuffixSuggestion {
+            case: rule.case.clone(),
+            form: rule.form.clone(),
+            mode: rule.mode,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -211,5 +293,20 @@ mod tests {
         assert!(forms.contains(&"ᠲᠤ".into()));
         assert!(forms.contains(&"ᠲᠤᠷ".into()));
         assert!(!forms.contains(&"ᠳᠤ".into()));
+    }
+
+    #[test]
+    fn accusative_possessive_prefers_short_form_then_long_form() {
+        let suggestions = suggest_reflexive_possessive("ᠨᠣᠮ\u{202F}ᠢ");
+        assert_eq!(suggestions[0].form, "ᠶᠤᠭᠠᠨ");
+        assert_eq!(suggestions[0].mode, PossessiveMode::ReplaceCase);
+        assert!(suggestions.iter().any(|s| s.form == "ᠪᠠᠨ" && s.mode == PossessiveMode::Append));
+    }
+
+    #[test]
+    fn feminine_genitive_possessive_appends_iyen() {
+        let suggestions = suggest_reflexive_possessive("ᠭᠡᠷ\u{202F}ᠦᠨ");
+        assert_eq!(suggestions[0].form, "ᠢᠶᠡᠨ");
+        assert_eq!(suggestions[0].mode, PossessiveMode::Append);
     }
 }

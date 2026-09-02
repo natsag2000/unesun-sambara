@@ -30,6 +30,9 @@ pub struct SuggestionState {
     /// `WasmEditor::accept_word_suggestion` knows what to replace.
     pub word_start: Option<Cursor>,
     pub word_end: Option<Cursor>,
+    /// Start of the currently suggested noun-case segment, used when a
+    /// short reflexive-possessive form replaces that case suffix.
+    pub suffix_start: Option<Cursor>,
     pub suggestions: Vec<String>,
 }
 
@@ -38,6 +41,7 @@ impl SuggestionState {
         Self {
             word_start: None,
             word_end: None,
+            suffix_start: None,
             suggestions: Vec::new(),
         }
     }
@@ -45,6 +49,7 @@ impl SuggestionState {
     pub fn clear(&mut self) {
         self.word_start = None;
         self.word_end = None;
+        self.suffix_start = None;
         self.suggestions.clear();
     }
 }
@@ -65,9 +70,11 @@ mod tests {
         state.suggestions = vec!["x".into()];
         state.word_start = Some(Cursor::new(0, 0));
         state.word_end = Some(Cursor::new(0, 1));
+        state.suffix_start = Some(Cursor::new(0, 1));
         state.clear();
         assert!(state.suggestions.is_empty());
         assert!(state.word_start.is_none());
         assert!(state.word_end.is_none());
+        assert!(state.suffix_start.is_none());
     }
 }
