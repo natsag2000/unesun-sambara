@@ -32,6 +32,21 @@ export class WasmEditor {
         }
     }
     /**
+     * Accepts a reflexive-possessive option. Long forms append after a new
+     * NNBSP; documented short forms replace the immediately preceding case
+     * suffix in one undoable edit.
+     * @param {string} text
+     * @param {boolean} replace_case
+     */
+    accept_possessive_suffix(text, replace_case) {
+        const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmeditor_accept_possessive_suffix(this.__wbg_ptr, ptr0, len0, replace_case);
+        if (ret[1]) {
+            throw takeFromExternrefTable0(ret[0]);
+        }
+    }
+    /**
      * Accepts a suggestion, replacing the word it was computed for
      * with `text`. Re-resolves nothing beyond what
      * `get_word_suggestions_json` already stored (`word_start`/

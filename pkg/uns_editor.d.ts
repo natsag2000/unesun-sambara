@@ -11,6 +11,12 @@ export class WasmEditor {
      */
     accept_case_suffix(text: string): void;
     /**
+     * Accepts a reflexive-possessive option. Long forms append after a new
+     * NNBSP; documented short forms replace the immediately preceding case
+     * suffix in one undoable edit.
+     */
+    accept_possessive_suffix(text: string, replace_case: boolean): void;
+    /**
      * Accepts a suggestion, replacing the word it was computed for
      * with `text`. Re-resolves nothing beyond what
      * `get_word_suggestions_json` already stored (`word_start`/
@@ -274,6 +280,7 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly __wbg_wasmeditor_free: (a: number, b: number) => void;
     readonly wasmeditor_accept_case_suffix: (a: number, b: number, c: number) => [number, number];
+    readonly wasmeditor_accept_possessive_suffix: (a: number, b: number, c: number, d: number) => [number, number];
     readonly wasmeditor_accept_word_suggestion: (a: number, b: number, c: number) => [number, number];
     readonly wasmeditor_can_redo: (a: number) => number;
     readonly wasmeditor_can_undo: (a: number) => number;

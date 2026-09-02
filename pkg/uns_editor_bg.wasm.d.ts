@@ -3,6 +3,7 @@
 export const memory: WebAssembly.Memory;
 export const __wbg_wasmeditor_free: (a: number, b: number) => void;
 export const wasmeditor_accept_case_suffix: (a: number, b: number, c: number) => [number, number];
+export const wasmeditor_accept_possessive_suffix: (a: number, b: number, c: number, d: number) => [number, number];
 export const wasmeditor_accept_word_suggestion: (a: number, b: number, c: number) => [number, number];
 export const wasmeditor_can_redo: (a: number) => number;
 export const wasmeditor_can_undo: (a: number) => number;
