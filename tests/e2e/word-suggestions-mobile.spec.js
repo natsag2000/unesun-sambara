@@ -109,7 +109,8 @@ test.describe("Word suggestion popup on mobile (WS-08)", () => {
           new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
         );
     });
-    await expect(popup).toBeHidden();
+    // A selected noun case now advances directly to possessive choices.
+    await expect(popup).toBeVisible();
 
     // A stale mobile NNBSP buffer used to emit a second U+202F before
     // this space, displayed by the editor as an [N] marker.

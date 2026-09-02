@@ -4621,13 +4621,18 @@
         acceptIndex(index) {
           const item = this.items[index];
           if (!item) return;
+          let showPossessives = false;
           try {
-            if (item.kind === "suffix") {
+            if (item.kind === "case") {
               this.editor.accept_case_suffix(item.text);
               // The input layer buffered the NNBSP that initiated this
               // suffix request. Rust just inserted that separator with the
               // chosen suffix, so discard the stale JS buffer before the
               // next mobile character can emit it a second time.
+              window.dispatchEvent(new Event("uns-suffix-accepted"));
+              showPossessives = true;
+            } else if (item.kind === "possessive") {
+              this.editor.accept_possessive_suffix(item.text, !!item.replaceCase);
               window.dispatchEvent(new Event("uns-suffix-accepted"));
             } else {
               this.editor.accept_word_suggestion(item.text);
@@ -4636,6 +4641,9 @@
             console.error("accepting word suggestion failed:", e);
           }
           this.hide();
+          // Selecting a noun case directly advances to the documented
+          // reflexive-possessive choices without requiring another key.
+          if (showPossessives) this.refresh(true);
         }
 
         accept() {

@@ -147,10 +147,42 @@ test.describe("Word suggestion popup (Phase P9)", () => {
     const genitiveIndex = state.suggestions.indexOf("\u1824\u1828");
     await page.keyboard.press(String(genitiveIndex + 1));
 
-    await expect(popup).toBeHidden();
+    // Selecting a noun case advances directly to its reflexive-possessive
+    // alternatives without requiring a second separator keystroke.
+    await expect(popup).toBeVisible();
     await expect
       .poll(() => page.evaluate(() => window.__unsTestHooks.getText().trim()))
       .toBe("\u1828\u1823\u182e\u202f\u1824\u1828");
+    state = await getSuggestionsState(page);
+    expect(state.suggestions).toContain("\u1822\u1836\u1820\u1828"); // genitive -iyan
+  });
+
+  test("NNBSP after a manually written noun case opens possessive choices", async ({ page }) => {
+    await page.goto("/");
+    await waitForReady(page);
+    await prepareBlankCyrillicInput(page);
+
+    // Write ном и manually, then request the next grammatical suffix.
+    await typeMongolian(page, "\u1828\u1823\u182e");
+    await page.locator("#keyboard-btn").click();
+    await page.keyboard.press("-");
+    await page.keyboard.press("i"); // Latin mapping -> ᠢ
+    await expect
+      .poll(() => page.evaluate(() => window.__unsTestHooks.getText().trim()))
+      .toBe("\u1828\u1823\u182e\u202f\u1822");
+    await page.keyboard.press("-");
+
+    const popup = page.locator("#word-suggestions-popup");
+    await expect(popup).toBeVisible();
+    const state = await getSuggestionsState(page);
+    // Short accusative-reflexive form has priority and replaces ᠢ.
+    expect(state.suggestions[0]).toBe("\u1836\u1824\u182D\u1820\u1828");
+
+    await page.keyboard.press("Enter");
+    await expect(popup).toBeHidden();
+    await expect
+      .poll(() => page.evaluate(() => window.__unsTestHooks.getText().trim()))
+      .toBe("\u1828\u1823\u182e\u202f\u1836\u1824\u182D\u1820\u1828");
   });
 
   test("a manually typed feminine stem gets unique suffix suggestions", async ({
