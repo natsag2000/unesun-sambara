@@ -2,6 +2,7 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const __wbg_wasmeditor_free: (a: number, b: number) => void;
+export const main: () => void;
 export const wasmeditor_accept_case_suffix: (a: number, b: number, c: number) => [number, number];
 export const wasmeditor_accept_possessive_suffix: (a: number, b: number, c: number, d: number) => [number, number];
 export const wasmeditor_accept_word_suggestion: (a: number, b: number, c: number) => [number, number];
@@ -48,15 +49,14 @@ export const wasmeditor_translit_load_dictionary: (a: number, b: number, c: numb
 export const wasmeditor_translit_lookup: (a: number, b: number, c: number) => any;
 export const wasmeditor_translit_render: (a: number, b: number, c: number, d: number, e: number) => [number, number];
 export const wasmeditor_undo: (a: number) => number;
-export const main: () => void;
-export const wasm_bindgen__closure__destroy__h9fe21e8b023d8040: (a: number, b: number) => void;
-export const wasm_bindgen__convert__closures_____invoke__h23f0b2cb1aaf7965: (a: number, b: number, c: any, d: any) => void;
-export const wasm_bindgen__convert__closures_____invoke__h5ce99ad185dd8d06: (a: number, b: number, c: any) => void;
+export const wasm_bindgen__convert__closures_____invoke__h027102d7d32ca6fa: (a: number, b: number, c: any, d: any) => void;
+export const wasm_bindgen__convert__closures_____invoke__h06b038a0351dd0d5: (a: number, b: number, c: any) => [number, number];
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
 export const __wbindgen_exn_store: (a: number) => void;
 export const __externref_table_alloc: () => number;
 export const __wbindgen_externrefs: WebAssembly.Table;
 export const __wbindgen_free: (a: number, b: number, c: number) => void;
+export const __wbindgen_destroy_closure: (a: number, b: number) => void;
 export const __externref_table_dealloc: (a: number) => void;
 export const __wbindgen_start: () => void;
