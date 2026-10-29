@@ -1832,6 +1832,146 @@ impl WasmEditor {
         Ok(())
     }
 
+    // ================= Double-click word selection + translation =================
+    //
+    // `prompt/WORD_TRANSLATION_PLAN.md`. Selection uses this project's
+    // own `word_boundary::current_word_bounds` (not cosmic-text's UAX#29
+    // `Selection::Word`, which knows nothing about Mongolian
+    // format-control characters), and translation is a reverse lookup on
+    // the same dictionary instance the suggestion popup / Transliteration
+    // modal share.
+
+    /// Selects the whole word under the given client (viewport) position
+    /// and returns
+    /// `{ selected, word, script, translationEnabled, anchorX, anchorY, lineAdvance }`.
+    /// `script` is `"mongolian" | "cyrillic" | "other"`; the anchor is the
+    /// selection end in canvas-pixel space (same convention as
+    /// `get_word_suggestions_json`). `selected: false` means the position
+    /// isn't on a word (whitespace, punctuation, digits) and nothing
+    /// changed apart from the cursor.
+    #[wasm_bindgen]
+    pub fn select_word_at(&mut self, client_x: f64, client_y: f64) -> Result<JsValue, JsValue> {
+        self.dirty = true;
+        // The double-click's second mousedown armed drag-selection;
+        // without this a pixel of jitter would immediately shrink the
+        // word selection via `Action::Drag`.
+        self.is_dragging = false;
+        self.state.suggestions.clear();
+
+        let obj = js_sys::Object::new();
+        js_sys::Reflect::set(&obj, &"selected".into(), &false.into())?;
+
+        let rect = self.canvas.get_bounding_client_rect();
+        let dpr = web_sys::window().ok_or("No window")?.device_pixel_ratio();
+        let (left_padding, top_padding) = self.content_padding();
+        let x = ((client_x - rect.left()) * dpr) as i32 + self.scroll_offset.0 - left_padding;
+        let y = ((client_y - rect.top()) * dpr) as i32 + self.scroll_offset.1 - top_padding;
+
+        self.state.flush_history_group();
+        self.state.editor.shape_as_needed(&mut self.state.font_system, false);
+
+        let Some(hit) = self
+            .state
+            .editor
+            .with_buffer(|buffer| buffer.hit(x as f32, y as f32))
+        else {
+            return Ok(obj.into());
+        };
+        let Some(line_text) = self
+            .state
+            .editor
+            .with_buffer(|buffer| buffer.lines.get(hit.line).map(|l| l.text().to_string()))
+        else {
+            return Ok(obj.into());
+        };
+
+        let chars: Vec<char> = line_text.chars().collect();
+        let char_index = char_index_for_byte_offset(&line_text, hit.index);
+        let Some((start_char, end_char)) = word_boundary::current_word_bounds(&chars, char_index)
+        else {
+            return Ok(obj.into());
+        };
+        let word_chars = &chars[start_char..end_char];
+        let script = match word_boundary::classify_script(word_chars) {
+            Some(Script::Mongolian) => "mongolian",
+            Some(Script::Cyrillic) => "cyrillic",
+            _ => "other",
+        };
+
+        let byte_index_of = |char_idx: usize| -> usize {
+            line_text
+                .char_indices()
+                .nth(char_idx)
+                .map(|(b, _)| b)
+                .unwrap_or(line_text.len())
+        };
+        let start = Cursor::new(hit.line, byte_index_of(start_char));
+        let end = Cursor::new(hit.line, byte_index_of(end_char));
+        self.state.editor.set_selection(Selection::Normal(start));
+        self.state.editor.set_cursor(end);
+        self.state.cursor_visible = true;
+        self.state
+            .editor
+            .with_buffer_mut(|buffer| buffer.set_redraw(true));
+        self.state.editor.shape_as_needed(&mut self.state.font_system, false);
+
+        let (buffer_x, buffer_y) = self.state.editor.cursor_position().unwrap_or((0, 0));
+        let anchor_x = buffer_x - self.scroll_offset.0 + left_padding;
+        let anchor_y = buffer_y - self.scroll_offset.1 + top_padding;
+        let line_advance = self
+            .state
+            .editor
+            .with_buffer(|buffer| {
+                buffer
+                    .layout_runs()
+                    .find(|run| run.line_i == hit.line)
+                    .map(|run| run.line_height)
+            })
+            .unwrap_or(24.0);
+
+        let word: String = word_chars.iter().collect();
+        js_sys::Reflect::set(&obj, &"selected".into(), &true.into())?;
+        js_sys::Reflect::set(&obj, &"word".into(), &word.into())?;
+        js_sys::Reflect::set(&obj, &"script".into(), &script.into())?;
+        js_sys::Reflect::set(
+            &obj,
+            &"translationEnabled".into(),
+            &self.state.settings.editor.word_translation_enabled.into(),
+        )?;
+        js_sys::Reflect::set(&obj, &"anchorX".into(), &(anchor_x as f64).into())?;
+        js_sys::Reflect::set(&obj, &"anchorY".into(), &(anchor_y as f64).into())?;
+        js_sys::Reflect::set(&obj, &"lineAdvance".into(), &(line_advance as f64).into())?;
+
+        self.dispatch_event(EditorEvent::CursorMoved);
+        self.dispatch_event(EditorEvent::SelectionChanged);
+        Ok(obj.into())
+    }
+
+    /// Cyrillic translations of a Bichig word, for the double-click
+    /// popup. Returns `{ loaded, candidates: string[], usedStem }` -
+    /// `loaded: false` means the dictionary isn't available yet (JS
+    /// should load it and retry); `usedStem: true` means the whole word
+    /// (stem + NNBSP suffix) missed and the candidates are for the stem.
+    #[wasm_bindgen]
+    pub fn translate_word_json(&self, word: &str) -> Result<JsValue, JsValue> {
+        let obj = js_sys::Object::new();
+        let arr = js_sys::Array::new();
+        let (loaded, used_stem) = match &self.dictionary {
+            Some(dict) => {
+                let (candidates, used_stem) = dict.reverse_lookup_word(word);
+                for c in candidates {
+                    arr.push(&JsValue::from_str(&c));
+                }
+                (true, used_stem)
+            }
+            None => (false, false),
+        };
+        js_sys::Reflect::set(&obj, &"loaded".into(), &loaded.into())?;
+        js_sys::Reflect::set(&obj, &"candidates".into(), &arr)?;
+        js_sys::Reflect::set(&obj, &"usedStem".into(), &used_stem.into())?;
+        Ok(obj.into())
+    }
+
     // ================= Cyrillic -> Mongolian transliteration =================
 
     /// Fetches and parses the dictionary TSV. Safe to call multiple times; the

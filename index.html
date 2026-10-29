@@ -425,6 +425,28 @@
         <div id="sr-suggestions" class="sr-only" aria-live="polite"></div>
 
         <!--
+          Double-click translation popup (prompt/WORD_TRANSLATION_PLAN.md).
+          Double-clicking a Bichig word selects it and lists its Cyrillic
+          equivalent(s) here. Plain DOM text on purpose: the content is
+          Cyrillic (no shaping concerns, unlike the Bichig suggestion
+          popup above, which is why that one is canvas-rendered).
+        -->
+        <div
+          id="word-translation-popup"
+          role="tooltip"
+          class="hidden absolute z-40 bg-editor-header border border-editor-border rounded shadow-2xl text-editor-text"
+          style="padding: 8px 12px; max-width: 320px"
+        >
+          <div
+            id="word-translation-label"
+            class="text-xs text-editor-text-dim"
+            style="margin-bottom: 4px"
+          ></div>
+          <ul id="word-translation-list" class="text-sm" style="list-style: none; margin: 0; padding: 0"></ul>
+        </div>
+        <div id="sr-translation" class="sr-only" aria-live="polite"></div>
+
+        <!--
           Find & Replace panel (Phase P2-03). Slides down from the top of
           the canvas area. Backed by the `editor.find.*` commands
           contributed by `FindReplacePlugin` (`src/plugins/find_replace.rs`),
@@ -940,6 +962,22 @@
                   class="w-5 h-5 accent-editor-accent"
                 />
               </label>
+
+              <label
+                class="flex items-center justify-between gap-3 bg-editor-bg border border-editor-border rounded px-4 py-3 cursor-pointer"
+              >
+                <span>
+                  <span class="block text-sm text-editor-text">Double-click translation</span>
+                  <span class="block text-xs text-editor-text opacity-70"
+                    >Double-click a Bichig word to show its Cyrillic translation</span
+                  >
+                </span>
+                <input
+                  type="checkbox"
+                  id="word-translation-enabled"
+                  class="w-5 h-5 accent-editor-accent"
+                />
+              </label>
             </div>
           </div>
 
@@ -1260,7 +1298,7 @@
     </div>
 
     <script type="module">
-      import init, { WasmEditor } from "./pkg/uns_editor.js?v=12";
+      import init, { WasmEditor } from "./pkg/uns_editor.js?v=13";
 
       let editor = null;
       let animationId = null;
@@ -1741,6 +1779,7 @@
             showLineNumbers: document.getElementById("show-line-numbers"),
             wordWrap: document.getElementById("word-wrap"),
             wordSuggestionsEnabled: document.getElementById("word-suggestions-enabled"),
+            wordTranslationEnabled: document.getElementById("word-translation-enabled"),
             themeSelect: document.getElementById("theme-select"),
             cursorColor: document.getElementById("cursor-color"),
             cursorColorHex: document.getElementById("cursor-color-hex"),
@@ -2434,6 +2473,8 @@
             this.elements.wordWrap.checked = settings.editor.word_wrap !== false;
             this.elements.wordSuggestionsEnabled.checked =
               settings.editor.word_suggestions_enabled !== false;
+            this.elements.wordTranslationEnabled.checked =
+              settings.editor.word_translation_enabled !== false;
 
             // Restore the theme dropdown's selection (purely cosmetic -
             // `appearance` above is already the real state regardless of
@@ -2475,6 +2516,7 @@
                 show_line_numbers: this.elements.showLineNumbers.checked,
                 word_wrap: this.elements.wordWrap.checked,
                 word_suggestions_enabled: this.elements.wordSuggestionsEnabled.checked,
+                word_translation_enabled: this.elements.wordTranslationEnabled.checked,
                 theme_id: this.activeThemeId,
               },
             };
@@ -2613,6 +2655,7 @@
           // suggestions computed for the previous tab's word are
           // meaningless now (Phase P9).
           if (wordSuggestions) wordSuggestions.dismiss();
+          if (wordTranslation) wordTranslation.dismiss();
         }
 
         // Send keyboard focus to the editor surface (the real canvas on
@@ -4677,7 +4720,145 @@
         }
       }
 
+      // Double-click translation popup (prompt/WORD_TRANSLATION_PLAN.md).
+      // `select_word_at()` has already selected the word in Rust by the
+      // time `showFor()` runs; this class only fetches/shows the Cyrillic
+      // translation(s) of a Bichig word and tears itself down whenever
+      // the selection it describes could have gone stale.
+      class WordTranslationPopup {
+        constructor(editor, dictionaryLoader) {
+          this.editor = editor;
+          // Anything with `ensureDictionaryLoaded()` / `dictionaryLoaded`
+          // - the shared lazy loader on `WordSuggestionsPopup`, so
+          // there's still exactly one dictionary fetch per page.
+          this.dictionaryLoader = dictionaryLoader;
+          this.popup = document.getElementById("word-translation-popup");
+          this.label = document.getElementById("word-translation-label");
+          this.list = document.getElementById("word-translation-list");
+          this.srMirror = document.getElementById("sr-translation");
+          this.visible = false;
+          this.candidates = [];
+          // Bumped by every `showFor`/`dismiss`; an in-flight dictionary
+          // load whose token is stale must not pop the tooltip up after
+          // the user has already clicked/typed elsewhere.
+          this.token = 0;
+        }
+
+        isOpen() {
+          return this.visible;
+        }
+
+        async showFor(info) {
+          const token = ++this.token;
+          this.hide();
+          if (!info || info.script !== "mongolian" || !info.translationEnabled) return;
+
+          await this.dictionaryLoader.ensureDictionaryLoaded();
+          if (token !== this.token) return;
+
+          let result = null;
+          if (this.dictionaryLoader.dictionaryLoaded) {
+            try {
+              result = this.editor.translate_word_json(info.word);
+            } catch (e) {
+              console.error("translate_word_json failed:", e);
+            }
+          }
+          if (token !== this.token) return;
+
+          this.render(result);
+          this.show();
+          this.position(info.anchorX, info.anchorY, info.lineAdvance);
+        }
+
+        render(result) {
+          this.list.textContent = "";
+          this.candidates = [];
+          if (!result || !result.loaded) {
+            this.label.textContent = "Dictionary unavailable";
+          } else if (result.candidates.length === 0) {
+            this.label.textContent = "No Cyrillic translation found";
+          } else {
+            this.candidates = Array.from(result.candidates);
+            this.label.textContent = result.usedStem
+              ? "Cyrillic (for the word stem)"
+              : "Cyrillic";
+            for (const text of this.candidates) {
+              const li = document.createElement("li");
+              li.textContent = text;
+              this.list.appendChild(li);
+            }
+          }
+          if (this.srMirror) {
+            this.srMirror.textContent = this.candidates.length
+              ? `Cyrillic translation: ${this.candidates.join(", ")}. Press Escape to dismiss.`
+              : this.label.textContent;
+          }
+        }
+
+        position(anchorX, anchorY, lineAdvance) {
+          const canvas = document.getElementById("editor-canvas");
+          const container = document.getElementById("canvas-container");
+          const canvasRect = canvas.getBoundingClientRect();
+          const containerRect = container.getBoundingClientRect();
+          const dpr = window.devicePixelRatio || 1;
+          const advance = (lineAdvance || 24) / dpr;
+          const left = canvasRect.left - containerRect.left + anchorX / dpr;
+          const top = canvasRect.top - containerRect.top + anchorY / dpr;
+          const width = this.popup.offsetWidth;
+          const height = this.popup.offsetHeight;
+
+          let x;
+          let y;
+          if (this.isVerticalMode()) {
+            // The anchor is the selection's end inside its own column;
+            // go one full column over so the selected word stays visible.
+            x = left + advance + 4;
+            y = top;
+            if (x + width > container.clientWidth) {
+              x = Math.max(0, left - width - 4);
+            }
+          } else {
+            x = left;
+            y = top + advance;
+            if (y + height > container.clientHeight) {
+              y = Math.max(0, top - height - 4);
+            }
+          }
+          x = Math.max(0, Math.min(x, container.clientWidth - width));
+          y = Math.max(0, Math.min(y, container.clientHeight - height));
+          this.popup.style.left = `${x}px`;
+          this.popup.style.top = `${y}px`;
+        }
+
+        isVerticalMode() {
+          try {
+            return JSON.parse(this.editor.get_settings_json())?.editor?.orientation === "vertical";
+          } catch (e) {
+            return false;
+          }
+        }
+
+        show() {
+          this.visible = true;
+          this.popup.classList.remove("hidden");
+        }
+
+        hide() {
+          this.visible = false;
+          this.candidates = [];
+          this.popup.classList.add("hidden");
+          if (this.srMirror) this.srMirror.textContent = "";
+        }
+
+        dismiss() {
+          this.token++;
+          if (this.visible || !this.popup.classList.contains("hidden")) this.hide();
+        }
+      }
+
       let wordSuggestions = null;
+      let wordTranslation = null;
 
       async function main() {
         try {
@@ -4694,7 +4875,7 @@
           });
 
           // Initialize WASM with cache-busting parameter
-          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=12" });
+          await init({ module_or_path: "./pkg/uns_editor_bg.wasm?v=13" });
 
           // Setup canvas
           const { width, height } = resizeCanvas();
@@ -4795,6 +4976,7 @@
           // here - the dictionary loads lazily on first real trigger
           // (see `WordSuggestionsPopup.ensureDictionaryLoaded`).
           wordSuggestions = new WordSuggestionsPopup(editor);
+          wordTranslation = new WordTranslationPopup(editor, wordSuggestions);
 
           // Keyboard shortcuts for save/open (Phase P6-01: data-driven
           // dispatch over `keybindings.matches()` instead of one
@@ -4836,6 +5018,17 @@
             },
           ];
 
+          // Clicking anywhere outside the canvas/popup (toolbar, modals,
+          // tab strip) leaves the translation popup describing a
+          // selection the user has moved on from.
+          document.addEventListener("mousedown", (e) => {
+            if (!wordTranslation || !wordTranslation.isOpen()) return;
+            // The canvas's own pointer handler already manages the popup
+            // (and may have *just* opened it for this very click).
+            if (e.target.closest?.("#word-translation-popup, #editor-canvas")) return;
+            wordTranslation.dismiss();
+          });
+
           document.addEventListener("keydown", (e) => {
             for (const action of keyActions) {
               if (action.guard && !action.guard()) continue;
@@ -4854,6 +5047,12 @@
               !fileManager.saveModal.classList.contains("hidden")
             ) {
               fileManager.closeSaveModal();
+            }
+
+            // Escape - Close the double-click translation popup even if
+            // focus has moved off the canvas.
+            if (e.key === "Escape" && wordTranslation && wordTranslation.isOpen()) {
+              wordTranslation.dismiss();
             }
 
             // Escape - Close find & replace panel (only when focus isn't
@@ -4895,6 +5094,18 @@
             // singleton isn't otherwise reachable from `page.evaluate()`
             // due to ES module scoping - same reasoning as the rest of
             // this object).
+            getTranslationState: () =>
+              wordTranslation
+                ? {
+                    visible: wordTranslation.isOpen(),
+                    label: wordTranslation.label.textContent,
+                    candidates: wordTranslation.candidates.slice(),
+                    rect: wordTranslation.isOpen()
+                      ? wordTranslation.popup.getBoundingClientRect().toJSON()
+                      : null,
+                  }
+                : null,
+            getSelectedText: () => editor?.get_selected_text() ?? null,
             getSuggestionsState: () =>
               wordSuggestions
                 ? {
@@ -4951,6 +5162,20 @@
           window.visualViewport?.addEventListener("scroll", positionMobileSuffixButton);
 
           canvas.addEventListener("keydown", (e) => {
+            // Double-click translation popup: any real key (typing,
+            // navigation, Escape) invalidates it; bare modifiers and
+            // Ctrl/Cmd+C (copy the just-selected word) leave it up.
+            if (wordTranslation && wordTranslation.isOpen()) {
+              const modifierOnly = ["Shift", "Control", "Alt", "Meta"].includes(e.key);
+              const copying = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "c";
+              if (e.key === "Escape") {
+                e.preventDefault();
+                wordTranslation.dismiss();
+                return;
+              }
+              if (!modifierOnly && !copying) wordTranslation.dismiss();
+            }
+
             // Word suggestion popup (Phase P9): while it's open, these
             // keys drive the popup instead of their usual text-editing
             // behavior. Checked *before* everything else below, fully
@@ -5191,10 +5416,29 @@
           let isDragging = false;
 
           // Unified pointer down handler
+          // Double-click / double-tap word selection + Cyrillic
+          // translation (prompt/WORD_TRANSLATION_PLAN.md).
+          let lastTap = null;
+          let lastTouchStartAt = -Infinity;
+
+          function handleWordDoubleClick(clientX, clientY) {
+            if (!editor) return;
+            let info;
+            try {
+              info = editor.select_word_at(clientX, clientY);
+            } catch (err) {
+              console.error("Word selection error:", err);
+              return;
+            }
+            if (!info || !info.selected) return;
+            if (wordTranslation) wordTranslation.showFor(info);
+          }
+
           function handlePointerDown(e) {
             // A click/tap relocates the cursor away from whatever word
             // suggestions were computed for.
             if (wordSuggestions) wordSuggestions.dismiss();
+            if (wordTranslation) wordTranslation.dismiss();
             try {
               // For touch events, let Rust handle everything
               if (e.type === "touchstart") {
@@ -5206,10 +5450,35 @@
                 if (editor.handle_touch_start) {
                   editor.handle_touch_start(e);
                 }
+
+                // Double-tap: two single-finger taps close together.
+                const touch = e.touches[0];
+                const now = performance.now();
+                lastTouchStartAt = now;
+                if (touch && e.touches.length === 1) {
+                  if (
+                    lastTap &&
+                    now - lastTap.time < 350 &&
+                    Math.hypot(touch.clientX - lastTap.x, touch.clientY - lastTap.y) < 30
+                  ) {
+                    lastTap = null;
+                    handleWordDoubleClick(touch.clientX, touch.clientY);
+                  } else {
+                    lastTap = { time: now, x: touch.clientX, y: touch.clientY };
+                  }
+                } else {
+                  lastTap = null;
+                }
               } else {
                 // For mouse events, pass through directly
                 canvas.focus();
                 editor.handle_mouse_down(e);
+                // `detail` is the browser's click count. Ignore the
+                // emulated mouse events that follow a touch (the
+                // double-tap path above already handled those).
+                if (e.detail === 2 && performance.now() - lastTouchStartAt > 800) {
+                  handleWordDoubleClick(e.clientX, e.clientY);
+                }
               }
             } catch (err) {
               console.error("Pointer down error:", err);
@@ -5300,6 +5569,7 @@
             "wheel",
             (e) => {
               try {
+                if (wordTranslation) wordTranslation.dismiss();
                 if (editor && editor.handle_wheel) {
                   editor.handle_wheel(e);
                 }
@@ -5364,6 +5634,7 @@
             // Capture input from hidden field
             mobileInput.addEventListener("input", (e) => {
               const text = e.target.value;
+              if (text && wordTranslation) wordTranslation.dismiss();
               if (text && editor) {
                 let suffixRequested = false;
                 // Convert character by character if input mode is active
@@ -5427,6 +5698,12 @@
             // canvas listener intercepts - see the precedence note in
             // WORD_SUGGESTIONS_PLAN.md §9.
             mobileInput.addEventListener("keydown", (e) => {
+              if (wordTranslation && wordTranslation.isOpen()) {
+                if (e.key === "Escape") e.preventDefault();
+                if (!["Shift", "Control", "Alt", "Meta"].includes(e.key)) {
+                  wordTranslation.dismiss();
+                }
+              }
               if (wordSuggestions && wordSuggestions.isOpen()) {
                 if (e.key === "Escape") {
                   e.preventDefault();
@@ -5569,6 +5846,7 @@
               if (editor) {
                 editor.set_text(versionText);
                 if (wordSuggestions) wordSuggestions.dismiss();
+                if (wordTranslation) wordTranslation.dismiss();
                 updateStatus("Loaded version information");
                 // Focus canvas after loading
                 if (isMobileDevice) {
@@ -5596,6 +5874,7 @@
               editor.set_text("");
               if (tabManager) tabManager.markActiveClean();
               if (wordSuggestions) wordSuggestions.dismiss();
+              if (wordTranslation) wordTranslation.dismiss();
               updateStatus("Text cleared");
               // Focus canvas after action
               if (isMobileDevice) {
