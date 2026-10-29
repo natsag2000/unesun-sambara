@@ -229,6 +229,17 @@ export class WasmEditor {
      */
     run_command(id: string, args_json: string): any;
     /**
+     * Selects the whole word under the given client (viewport) position
+     * and returns
+     * `{ selected, word, script, translationEnabled, anchorX, anchorY, lineAdvance }`.
+     * `script` is `"mongolian" | "cyrillic" | "other"`; the anchor is the
+     * selection end in canvas-pixel space (same convention as
+     * `get_word_suggestions_json`). `selected: false` means the position
+     * isn't on a word (whitespace, punctuation, digits) and nothing
+     * changed apart from the cursor.
+     */
+    select_word_at(client_x: number, client_y: number): any;
+    /**
      * Move the cursor to a 1-based `(line, column)` position, the same
      * convention `get_cursor_position` returns. Used by auto-save draft
      * recovery (P2-05) to restore where the user was editing; clamps
@@ -240,6 +251,14 @@ export class WasmEditor {
     set_size(width: number, height: number): void;
     set_text(text: string): void;
     toggle_vertical(): void;
+    /**
+     * Cyrillic translations of a Bichig word, for the double-click
+     * popup. Returns `{ loaded, candidates: string[], usedStem }` -
+     * `loaded: false` means the dictionary isn't available yet (JS
+     * should load it and retry); `usedStem: true` means the whole word
+     * (stem + NNBSP suffix) missed and the candidates are for the stem.
+     */
+    translate_word_json(word: string): any;
     /**
      * Sets up (or resizes) the offscreen translit renderer bound to the
      * given canvas element.
@@ -315,11 +334,13 @@ export interface InitOutput {
     readonly wasmeditor_render_suggestions_popup: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly wasmeditor_reset_to_defaults: (a: number) => [number, number, number, number];
     readonly wasmeditor_run_command: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+    readonly wasmeditor_select_word_at: (a: number, b: number, c: number) => [number, number, number];
     readonly wasmeditor_set_cursor_position: (a: number, b: number, c: number) => void;
     readonly wasmeditor_set_settings_json: (a: number, b: number, c: number) => [number, number];
     readonly wasmeditor_set_size: (a: number, b: number, c: number) => void;
     readonly wasmeditor_set_text: (a: number, b: number, c: number) => void;
     readonly wasmeditor_toggle_vertical: (a: number) => void;
+    readonly wasmeditor_translate_word_json: (a: number, b: number, c: number) => [number, number, number];
     readonly wasmeditor_translit_init_canvas: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly wasmeditor_translit_is_loaded: (a: number) => number;
     readonly wasmeditor_translit_load_dictionary: (a: number, b: number, c: number) => any;

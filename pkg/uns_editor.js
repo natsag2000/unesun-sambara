@@ -552,6 +552,26 @@ export class WasmEditor {
         return takeFromExternrefTable0(ret[0]);
     }
     /**
+     * Selects the whole word under the given client (viewport) position
+     * and returns
+     * `{ selected, word, script, translationEnabled, anchorX, anchorY, lineAdvance }`.
+     * `script` is `"mongolian" | "cyrillic" | "other"`; the anchor is the
+     * selection end in canvas-pixel space (same convention as
+     * `get_word_suggestions_json`). `selected: false` means the position
+     * isn't on a word (whitespace, punctuation, digits) and nothing
+     * changed apart from the cursor.
+     * @param {number} client_x
+     * @param {number} client_y
+     * @returns {any}
+     */
+    select_word_at(client_x, client_y) {
+        const ret = wasm.wasmeditor_select_word_at(this.__wbg_ptr, client_x, client_y);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
+    }
+    /**
      * Move the cursor to a 1-based `(line, column)` position, the same
      * convention `get_cursor_position` returns. Used by auto-save draft
      * recovery (P2-05) to restore where the user was editing; clamps
@@ -591,6 +611,24 @@ export class WasmEditor {
     }
     toggle_vertical() {
         wasm.wasmeditor_toggle_vertical(this.__wbg_ptr);
+    }
+    /**
+     * Cyrillic translations of a Bichig word, for the double-click
+     * popup. Returns `{ loaded, candidates: string[], usedStem }` -
+     * `loaded: false` means the dictionary isn't available yet (JS
+     * should load it and retry); `usedStem: true` means the whole word
+     * (stem + NNBSP suffix) missed and the candidates are for the stem.
+     * @param {string} word
+     * @returns {any}
+     */
+    translate_word_json(word) {
+        const ptr0 = passStringToWasm0(word, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.wasmeditor_translate_word_json(this.__wbg_ptr, ptr0, len0);
+        if (ret[2]) {
+            throw takeFromExternrefTable0(ret[1]);
+        }
+        return takeFromExternrefTable0(ret[0]);
     }
     /**
      * Sets up (or resizes) the offscreen translit renderer bound to the
