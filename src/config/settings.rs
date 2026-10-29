@@ -107,6 +107,12 @@ pub struct EditorBehaviorSettings {
     /// this before doing any suggestion work at all.
     #[serde(default = "default_word_suggestions_enabled")]
     pub word_suggestions_enabled: bool,
+    /// Double-click a Bichig word to select it and show its Cyrillic
+    /// translation (`prompt/WORD_TRANSLATION_PLAN.md`). On by default.
+    /// The double-click *selection* always happens; this only gates the
+    /// translation popup.
+    #[serde(default = "default_word_translation_enabled")]
+    pub word_translation_enabled: bool,
 }
 
 fn default_word_wrap() -> bool {
@@ -121,6 +127,10 @@ fn default_word_suggestions_enabled() -> bool {
     true
 }
 
+fn default_word_translation_enabled() -> bool {
+    true
+}
+
 impl Default for EditorBehaviorSettings {
     fn default() -> Self {
         Self {
@@ -129,6 +139,7 @@ impl Default for EditorBehaviorSettings {
             word_wrap: true,
             theme_id: default_theme_id(),
             word_suggestions_enabled: default_word_suggestions_enabled(),
+            word_translation_enabled: default_word_translation_enabled(),
         }
     }
 }
@@ -204,6 +215,22 @@ mod tests {
         assert_eq!(restored.fonts.font_size, original.fonts.font_size);
         assert_eq!(restored.editor.orientation, original.editor.orientation);
         assert_eq!(restored.editor.theme_id, original.editor.theme_id);
+    }
+
+    #[test]
+    fn word_translation_defaults_on_and_survives_missing_field() {
+        assert!(EditorSettings::default().editor.word_translation_enabled);
+        // Old saved settings/.uns files predate the field entirely.
+        let editor: EditorBehaviorSettings =
+            serde_json::from_str(r#"{"orientation":"vertical"}"#).expect("deserialize");
+        assert!(editor.word_translation_enabled);
+        let json = serde_json::to_string(&EditorBehaviorSettings {
+            word_translation_enabled: false,
+            ..Default::default()
+        })
+        .unwrap();
+        let back: EditorBehaviorSettings = serde_json::from_str(&json).unwrap();
+        assert!(!back.word_translation_enabled);
     }
 
     #[test]

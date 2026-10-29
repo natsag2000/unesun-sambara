@@ -17,6 +17,10 @@ const SUGGESTION_LIMIT: usize = 8;
 /// we've even had a chance to rank and cut down to `SUGGESTION_LIMIT`.
 const MAX_PREFIX_SCAN: usize = 500;
 
+/// Maximum number of Cyrillic candidates `reverse_lookup()` returns
+/// (`prompt/WORD_TRANSLATION_PLAN.md`).
+const TRANSLATION_LIMIT: usize = 6;
+
 /// Cyrillic -> Traditional Mongolian dictionary.
 ///
 /// Keys are the Cyrillic column (lower-cased, trimmed). Each key maps to one
@@ -41,6 +45,14 @@ pub struct Dictionary {
     /// what a user typed (which also goes through the same stripping
     /// via `Dictionary::normalize_mongolian`).
     mongolian_index: Vec<(String, usize)>,
+    /// Format-control-stripped Mongolian value -> Cyrillic keys that
+    /// map to it, for `reverse_lookup()` (double-click translation).
+    /// Unlike the suggestion indices, rows whose *Cyrillic* side is a
+    /// phrase are kept (a single Bichig word can legitimately translate
+    /// to a multi-word Cyrillic phrase); rows whose Bichig side contains
+    /// whitespace are skipped, since a double-clicked word can never
+    /// match them.
+    reverse_map: HashMap<String, Vec<String>>,
 }
 
 impl Dictionary {
@@ -105,6 +117,7 @@ impl Dictionary {
             entries: Vec::new(),
             cyrillic_index: Vec::new(),
             mongolian_index: Vec::new(),
+            reverse_map: HashMap::new(),
         };
         dict.build_indices();
         dict
@@ -151,9 +164,52 @@ impl Dictionary {
             .collect();
         mongolian_index.sort_by(|a, b| a.0.cmp(&b.0));
 
+        let mut reverse_map: HashMap<String, Vec<String>> = HashMap::new();
+        for (cyrillic, variants) in self.map.iter() {
+            for mongolian in variants {
+                if mongolian.chars().any(char::is_whitespace) {
+                    continue;
+                }
+                let key = Self::normalize_mongolian(mongolian);
+                if key.is_empty() {
+                    continue;
+                }
+                let list = reverse_map.entry(key).or_default();
+                if !list.contains(cyrillic) {
+                    list.push(cyrillic.clone());
+                }
+            }
+        }
+        for list in reverse_map.values_mut() {
+            list.sort_by(|a, b| {
+                a.chars()
+                    .count()
+                    .cmp(&b.chars().count())
+                    .then_with(|| a.cmp(b))
+            });
+        }
+
         self.entries = entries;
         self.cyrillic_index = cyrillic_index;
         self.mongolian_index = mongolian_index;
+        self.reverse_map = reverse_map;
+    }
+
+    /// Cyrillic translations of a Mongolian Bichig word (the inverse of
+    /// `lookup()`), for the double-click translation popup. Matching
+    /// ignores Mongolian format-control characters on both sides, so a
+    /// word typed with different FVS/MVS variants than the dictionary's
+    /// still matches. Shorter Cyrillic forms rank first, then
+    /// alphabetical; capped at `TRANSLATION_LIMIT`. Empty if unknown.
+    pub fn reverse_lookup(&self, mongolian: &str) -> Vec<String> {
+        let key = Self::normalize_mongolian(mongolian.trim());
+        if key.is_empty() {
+            return Vec::new();
+        }
+        self.reverse_map
+            .get(&key)
+            .map(|v| v.iter().take(TRANSLATION_LIMIT).cloned().collect())
+            .unwrap_or_default()
     }
 
     /// Live word-completion/correction candidates for `prefix`, drawn
@@ -219,6 +275,27 @@ impl Dictionary {
             }
         }
         results
+    }
+
+    /// `reverse_lookup()` plus a stem fallback for the double-click
+    /// popup: Mongolian writes case/possessive suffixes after a NNBSP
+    /// (U+202F), which `word_boundary` treats as part of the same word,
+    /// so a double-clicked inflected word (`stem<NNBSP>suffix`) would
+    /// never match a dictionary headword. If the whole word misses and
+    /// contains a NNBSP, retry with the part before the first one.
+    /// Returns `(candidates, used_stem)`.
+    pub fn reverse_lookup_word(&self, word: &str) -> (Vec<String>, bool) {
+        let whole = self.reverse_lookup(word);
+        if !whole.is_empty() {
+            return (whole, false);
+        }
+        if let Some((stem, _)) = word.split_once('\u{202F}') {
+            let from_stem = self.reverse_lookup(stem);
+            if !from_stem.is_empty() {
+                return (from_stem, true);
+            }
+        }
+        (Vec::new(), false)
     }
 
     /// Returns the list of Mongolian variants for a given Cyrillic input.
@@ -347,5 +424,72 @@ mod tests {
         let dict = Dictionary::from_tsv(&tsv);
         let results = dict.suggest("слово", Script::Cyrillic);
         assert_eq!(results.len(), SUGGESTION_LIMIT);
+    }
+
+    #[test]
+    fn reverse_lookup_returns_cyrillic_for_a_bichig_word() {
+        let dict = fixture();
+        assert_eq!(dict.reverse_lookup("\u{1825}\u{1826}\u{1827}"), vec!["монгол"]);
+    }
+
+    #[test]
+    fn reverse_lookup_ignores_format_control_characters_on_both_sides() {
+        let dict = fixture();
+        // Dictionary side has U+180B embedded; query side doesn't.
+        assert_eq!(dict.reverse_lookup("\u{1825}\u{1826}"), vec!["мон"]);
+        // And the other way round.
+        assert_eq!(dict.reverse_lookup("\u{1825}\u{180C}\u{1826}"), vec!["мон"]);
+    }
+
+    #[test]
+    fn reverse_lookup_returns_every_homograph_shortest_first() {
+        let dict = Dictionary::from_tsv(
+            "длинное\t\u{1820}\u{1821}\n\
+             кор\t\u{1820}\u{1821}\n\
+             аб\t\u{1820}\u{1821}\n\
+             аб\t\u{1820}\u{1821}\n",
+        );
+        assert_eq!(dict.reverse_lookup("\u{1820}\u{1821}"), vec!["аб", "кор", "длинное"]);
+    }
+
+    #[test]
+    fn reverse_lookup_keeps_cyrillic_phrases_but_skips_bichig_phrases() {
+        let dict = Dictionary::from_tsv(
+            "два слова\t\u{1820}\u{1821}\n\
+             слово\t\u{1820} \u{1822}\n",
+        );
+        assert_eq!(dict.reverse_lookup("\u{1820}\u{1821}"), vec!["два слова"]);
+        assert!(dict.reverse_lookup("\u{1820}").is_empty());
+    }
+
+    #[test]
+    fn reverse_lookup_miss_and_blank_return_empty() {
+        let dict = fixture();
+        assert!(dict.reverse_lookup("\u{1830}\u{1831}").is_empty());
+        assert!(dict.reverse_lookup("   ").is_empty());
+        assert!(dict.reverse_lookup("\u{180B}").is_empty());
+    }
+
+    #[test]
+    fn reverse_lookup_caps_at_the_translation_limit() {
+        let mut tsv = String::new();
+        for i in 0..(TRANSLATION_LIMIT + 5) {
+            tsv.push_str(&format!("слово{i}\t\u{1820}\u{1821}\n"));
+        }
+        let dict = Dictionary::from_tsv(&tsv);
+        assert_eq!(dict.reverse_lookup("\u{1820}\u{1821}").len(), TRANSLATION_LIMIT);
+    }
+
+    #[test]
+    fn reverse_lookup_word_falls_back_to_the_stem_before_a_nnbsp_suffix() {
+        let dict = fixture();
+        let inflected = "\u{1825}\u{1826}\u{1827}\u{202F}\u{1828}\u{1829}";
+        assert_eq!(dict.reverse_lookup_word(inflected), (vec!["монгол".to_string()], true));
+        // Whole-word hit wins and doesn't report a stem fallback.
+        assert_eq!(
+            dict.reverse_lookup_word("\u{1825}\u{1826}\u{1827}"),
+            (vec!["монгол".to_string()], false)
+        );
+        assert_eq!(dict.reverse_lookup_word("\u{1830}\u{202F}\u{1831}"), (Vec::new(), false));
     }
 }

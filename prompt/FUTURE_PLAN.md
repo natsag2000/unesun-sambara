@@ -247,6 +247,22 @@ existing Transliteration modal (`Ctrl+T`).
 
 ---
 
+## Phase P10 — Double-click word translation
+
+Double-click (desktop) or double-tap (mobile) a word to select the whole word;
+for a Bichig word, a popup shows its Cyrillic translation(s) via a new
+Bichig→Cyrillic reverse index on the existing dictionary. Display-only, with a
+settings toggle. Design: [`prompt/WORD_TRANSLATION_PLAN.md`](WORD_TRANSLATION_PLAN.md).
+
+- **P10 (WT-01..WT-06)** `[x]` **M** — Done on branch
+  `feature/double-click-translation` (pending review/merge into `dev`).
+  Selection uses `word_boundary` rather than cosmic-text's UAX #29
+  `Selection::Word` so Mongolian format-control characters stay inside the word;
+  inflected `stem<NNBSP>suffix` words fall back to a stem lookup.
+  - Impl log: [`DOC/IMPL/WORD_TRANSLATION_IMPL.md`](../DOC/IMPL/WORD_TRANSLATION_IMPL.md) · Patch: `patch/word-translation.patch`.
+
+---
+
 ## Suggested order of execution
 
 1. ~~**Phase P0** foundation cleanup~~ — done (commit `0e89edb`).
@@ -262,7 +278,7 @@ All items from the original "suggested order" list, plus Phase P9, are
 now done. Remaining backlog (none block each other): Phase P5
 (`P5-01`, `P5-03`, `P5-04`), `P3-01`/`P3-02`/`P3-04`, Phase P8 stretch
 items (`P8-01`, `P8-02`), and Phase P9's deferred `WS-07`/`WS-08`.
-**← next.**
+**← next.** (Phase P10, double-click word translation, is done on its own branch pending merge.)
 
 ## Open questions (resolutions recorded)
 
